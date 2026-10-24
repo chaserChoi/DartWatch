@@ -3,12 +3,13 @@
 OpenDART 기업 공시를 수집하고 관심 조건에 맞는 공시를 이메일로 알리는 단일 사용자 Backend 프로젝트입니다.
 요구사항의 기준은 [프로젝트 계획서](docs/PROJECT_PLAN.md)입니다.
 
-현재 **Phase 3B: 이메일 전송·발송 이력·안전한 재시도**까지 구현했습니다.
+현재 **Phase 3C: 자동 수집·분류·작업 생성·전송 처리 스케줄러 연결**까지 구현했습니다.
 기존 5개 Entity를 재사용하며 ERD는 [도메인 모델](docs/DOMAIN_MODEL.md),
 API·수집 기준·설정·검증 방법은 [Phase 2 가이드](docs/PHASE_2.md)를 참고하세요.
 분류·조건 API와 활성 기준은 [Phase 3A 가이드](docs/PHASE_3.md)에 정리했습니다.
 이메일 전송·상태·SMTP 설정은 [Phase 3B 가이드](docs/PHASE_3B.md)에 정리했습니다.
-수집→분류→발송 자동 통합(3C), 인증·프론트엔드는 구현하지 않았습니다.
+자동 파이프라인과 실행 설정은 [Phase 3C 가이드](docs/PHASE_3C.md)를 참고하세요.
+인증·프론트엔드는 구현하지 않았습니다.
 
 ## 환경과 버전
 
@@ -123,7 +124,7 @@ V3는 공시 분류 확인 시각과 기업/조건별 활성 기준을 추가합
 ## Phase 3A 사용
 
 - `POST /api/watchlist/{id}/disclosure-classifications`: 미분류 공시를 공식 A~E 조회 결과로 분류합니다.
-  이미 확인된 유형은 재사용하며 F~J를 E로 추정하지 않습니다. 수집 스케줄러에 자동 연결하지 않았습니다.
+  이미 확인된 유형은 재사용하며 F~J를 E로 추정하지 않습니다. 자동 수집 성공 후에도 같은 분류 서비스를 사용합니다.
 - `GET /api/watchlist/{id}/notification-rules`: 기업별 설정과 조건을 조회합니다.
 - `PUT /api/watchlist/{id}/notification-rules/A`: `{"enabled":true}` 형식으로 A~E 조건을 등록·수정합니다.
 - `PATCH /api/watchlist/{id}/notifications`: `{"enabled":true}`로 기업별 후보 필터를 켭니다(기본 false).
@@ -144,8 +145,22 @@ V3는 공시 분류 확인 시각과 기업/조건별 활성 기준을 추가합
 
 최초 전역 활성화와 재활성화 시각을 DB에 기록하여 그 이전에 탐지된 공시를 일괄 발송하지 않습니다.
 재시도 기본값은 최초 1회 + 최대 3회, 간격 10분입니다. UNKNOWN·SENT·영구 실패는 자동 재시도하지 않습니다.
-3B에서는 전송 스케줄러를 추가하지 않았습니다. 재시도 간격이 지난 작업은 다음 명시적 dispatch에서 처리하며 자동 통합은 3C에 남겼습니다.
+3C의 전송 스케줄러를 켜면 기한이 지난 작업을 자동 처리합니다. 타이머가 꺼져 있으면 명시적 dispatch에서 처리합니다.
 V4는 수신자별 UNIQUE·DB 선점 토큰·재시도 시각·전역 활성 기준을 추가하고 기존 V1~V3와 이력을 보존합니다.
+
+## Phase 3C 자동 실행
+
+세 설정은 모두 기본 `false`입니다.
+
+- `COLLECTION_ENABLED=true`: 기본 10분마다 수집 → 성공 기업 분류 → 메일 전역 설정이 켜진 경우 작업 생성.
+- `NOTIFICATION_ENABLED=true`: 적격 작업 생성·전송 전역 허용. SMTP 설정과 기존 활성 기준 검사를 적용합니다.
+- `NOTIFICATION_SCHEDULER_ENABLED=true`: 메일 전역 설정도 켜져 있을 때 기본 1분마다 대기·기한이 된 재시도 작업 처리.
+
+전송 주기는 `NOTIFICATION_SCHEDULER_INTERVAL=PT1M`, 초기 지연은 `NOTIFICATION_SCHEDULER_INITIAL_DELAY=PT30S`로 조정합니다.
+수집·전송 타이머는 앱 준비 완료 후 독립적으로 실행하며 실패한 후속 단계가 이미 저장한 공시를 롤백하지 않습니다.
+기존 `POST /api/collections`는 계속 수집만 수행합니다. 자동 전송이 켜져 있으면 그 데이터도 이후 자동 주기의 검사 대상이 될 수 있습니다.
+실제 SMTP 사용·자동 발송 활성화는 사용자 승인 후 진행하세요. 검증용 환경에서는 메일 설정 두 플래그를 false로 유지합니다.
+상세 정책은 [Phase 3C 가이드](docs/PHASE_3C.md)에 정리했습니다.
 
 ## Phase 2 사용 순서
 
@@ -155,7 +170,7 @@ V4는 수신자별 UNIQUE·DB 선점 토큰·재시도 시각·전역 활성 기
 3. `GET /api/companies?query=005930` 또는 URL 인코딩한 기업명으로 검색합니다.
 4. 검색 결과의 DB `id`로 `POST /api/watchlist`에 `{"companyId":1}` 형식의 JSON을 보냅니다.
 5. `POST /api/collections`로 활성 관심 기업을 즉시 수집합니다. 응답의 전체·기업별 상태를 확인하세요.
-6. `.env`의 `COLLECTION_ENABLED=true`로 설정하고 앱을 재시작하면 기본 10분 fixed delay로 자동 수집합니다.
+6. `.env`의 `COLLECTION_ENABLED=true`로 설정하고 앱을 재시작하면 기본 10분 fixed delay로 자동 수집·분류합니다.
 
 기업 검색은 OpenDART를 호출하지 않습니다. 기업 동기화 완료 후 같은 동기화 요청도 다운로드를 생략합니다.
 최신 기업 정보를 다시 내려받을 때만 `POST /api/companies/sync?refresh=true`를 사용합니다.
@@ -187,6 +202,7 @@ Phase 2 통합 테스트는 외부 API를 Mock하고 기업 동기화·REST 관�
 도메인 영속성 테스트는 임시 스키마를 만들어 사용하고 종료 시 제거합니다.
 DB 또는 비밀번호가 준비되지 않으면 실패하며, 기본 `build`에는 포함하지 않았습니다.
 H2나 Testcontainers 의존성 및 임의의 테스트 비밀번호를 추가하지 않았습니다.
-모든 Gradle 테스트 작업에서는 자동 수집을 강제로 끕니다. 실제 외부 호출은 기본 테스트에서 제외된 `liveTest`에서만 수행합니다.
+모든 Gradle 테스트 작업에서는 자동 수집·메일 전역 설정·자동 전송 타이머를 강제로 끕니다.
+실제 외부 호출은 기본 테스트에서 제외된 `liveTest`의 최소 OpenDART 회귀 검증에서만 수행합니다.
 
 테스트 보고서는 `build/reports/tests/test/index.html` 및 `build/reports/tests/integrationTest/index.html`에 생성됩니다.

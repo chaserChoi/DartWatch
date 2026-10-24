@@ -8,6 +8,7 @@ import org.springframework.boot.autoconfigure.mail.MailProperties;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
@@ -30,6 +31,7 @@ public class NotificationDispatchService {
     }
 
     @EventListener(ApplicationReadyEvent.class)
+    @Order(0)
     public void initialize() {
         store.synchronizeConfiguration();
     }

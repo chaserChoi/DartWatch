@@ -3,14 +3,13 @@ package com.dartwatch.collection;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.EnableScheduling;
+import com.dartwatch.scheduling.SchedulerReadiness;
 
 @Configuration
-@EnableScheduling
 @ConditionalOnProperty(prefix = "dartwatch.collection", name = "enabled", havingValue = "true")
 public class CollectionSchedulingConfiguration {
     @Bean
-    CollectionScheduler collectionScheduler(DisclosureCollectionService service) {
-        return new CollectionScheduler(service);
+    CollectionScheduler collectionScheduler(CollectionPipelineService service, SchedulerReadiness readiness) {
+        return new CollectionScheduler(service, readiness);
     }
 }

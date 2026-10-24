@@ -4,15 +4,17 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
+import com.dartwatch.scheduling.SchedulerReadiness;
+import com.dartwatch.scheduling.SchedulingConfiguration;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class CollectionSchedulerTests {
-    private final DisclosureCollectionService service = mock(DisclosureCollectionService.class);
+    private final CollectionPipelineService service = mock(CollectionPipelineService.class);
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withUserConfiguration(CollectionSchedulingConfiguration.class)
-            .withBean(DisclosureCollectionService.class, () -> service);
+            .withUserConfiguration(CollectionSchedulingConfiguration.class, SchedulingConfiguration.class)
+            .withBean(CollectionPipelineService.class, () -> service);
 
     @Test
     void disabledByDefault() {
@@ -30,17 +32,32 @@ class CollectionSchedulerTests {
     }
 
     @Test
-    void scheduledCallbackDelegatesToTheSharedCollector() {
-        when(service.collectAll()).thenReturn(new DisclosureCollectionService.CollectionResult("COMPLETED", List.of()));
-        new CollectionScheduler(service).collect();
-        verify(service).collectAll();
+    void scheduledCallbackDelegatesToTheCollectionPipeline() {
+        when(service.run()).thenReturn(completed());
+        var readiness = new SchedulerReadiness();
+        readiness.markReady();
+        new CollectionScheduler(service, readiness).collect();
+        verify(service).run();
     }
 
     @Test
     void configuredIntervalActuallyTriggersRepeatedScheduledExecution() {
-        when(service.collectAll()).thenReturn(new DisclosureCollectionService.CollectionResult("COMPLETED", List.of()));
+        when(service.run()).thenReturn(completed());
         runner.withPropertyValues("dartwatch.collection.enabled=true", "dartwatch.collection.interval=PT0.02S",
-                "dartwatch.collection.initial-delay=PT0S").run(context ->
-                verify(service, timeout(2000).atLeast(2)).collectAll());
+                "dartwatch.collection.initial-delay=PT0S").run(context -> {
+                    context.getBean(SchedulerReadiness.class).markReady();
+                    verify(service, timeout(2000).atLeast(2)).run();
+                });
+    }
+
+    @Test
+    void ignoresTicksBeforeApplicationReady() {
+        new CollectionScheduler(service, new SchedulerReadiness()).collect();
+        verifyNoInteractions(service);
+    }
+
+    static CollectionPipelineService.Result completed() {
+        return new CollectionPipelineService.Result("COMPLETED",
+                new DisclosureCollectionService.CollectionResult("COMPLETED", List.of()), List.of());
     }
 }

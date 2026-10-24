@@ -39,6 +39,10 @@ springdoc:
 
 dartwatch:
   notification:
+    scheduler:
+      enabled: ${NOTIFICATION_SCHEDULER_ENABLED:false}
+      interval: ${NOTIFICATION_SCHEDULER_INTERVAL:PT1M}
+      initial-delay: ${NOTIFICATION_SCHEDULER_INITIAL_DELAY:PT30S}
     enabled: ${NOTIFICATION_ENABLED:false}
     email-to: ${NOTIFICATION_EMAIL_TO:}
     mail-from: ${MAIL_FROM:}

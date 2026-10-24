@@ -39,6 +39,7 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(Test).configureEach {
     systemProperty 'dartwatch.collection.enabled', 'false'
     systemProperty 'dartwatch.notification.enabled', 'false'
+    systemProperty 'dartwatch.notification.scheduler.enabled', 'false'
 }
 
 tasks.named('test') {

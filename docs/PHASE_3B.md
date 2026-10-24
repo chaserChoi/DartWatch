@@ -1,5 +1,7 @@
 # Phase 3B — 이메일 전송·이력·재시도
 
+이 문서는 3B 구현 시점의 기록이다. 이후 추가한 자동 연결·처리 타이머와 최신 실행 정책은 [Phase 3C](PHASE_3C.md)를 참고한다.
+
 기존 3A 분류·후보 필터와 `NotificationDelivery`를 확장했다.
 추가 의존성은 Boot BOM에 맞춘 `spring-boot-starter-mail:3.5.16`뿐이다.
 `NotificationSender` 인터페이스의 구현체는 `EmailNotificationSender` 하나다.
