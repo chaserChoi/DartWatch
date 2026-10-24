@@ -1,341 +1,221 @@
-# Phase 4 — 수집·이메일 안정성
+# Phase 4 최종 보고 — 안정성·검증·MVP 판정
 
-Phase 4A·4B·4C를 구현했다. 아래 수집/이메일 내용은 각 단계의 기록이며 최신 API·운영 품질 변경은 뒤의 **Phase 4C** 절을 기준으로 한다.
-Phase 4D, 신규 인프라·의존성·Entity·마이그레이션은 포함하지 않는다.
+검증일: 2026-10-24. Phase 4A~4D를 완료하고 Phase 5·6은 진행하지 않았다.
+이 문서는 최신 기술 기준이다. 이전 단계의 구현 기록은 PHASE_2.md, PHASE_3.md, PHASE_3B.md, PHASE_3C.md를 참고한다.
 
-## 기존 보장과 보완점
+## 1. 최종 판정
 
-| 장애/상황 | 기존 보장 | 이번 조치 |
+**기능 구현 및 Mock/로컬 SMTP·PostgreSQL 통제 환경의 MVP: PASS.**
+계획서의 실제 운영 문구인 “3개 이상 기업의 신규 공시를 중복 없이 이메일로 수신”은 이번에 외부 발송하지 않았으므로
+**NOT VERIFIED**다. 개발 완료와 실제 운영 인수를 구분하며, 실운영까지 검증된 무조건적인 완료로 판단하지 않는다.
+
+PASS는 아래 명시한 검증 환경에서 직접 실행한 근거가 있다는 뜻이다. FAIL은 재현된 미해결 결함,
+NOT VERIFIED는 실행하지 않았거나 관측할 수 없는 범위다. 현재 실행한 테스트의 미해결 실패는 없다.
+
+| MVP 요구사항 | 판정 | 이번 검증 근거/범위 |
 | --- | --- | --- |
-| 중간 페이지 실패·페이지 메타데이터 변경 | 전체 결과를 반환하지 않음, 체크포인트 유지 | 유지, 실패 페이지 재시도와 DB 복구 테스트 추가 |
-| 기업별 API/DB 실패 | 기업별 트랜잭션·오류 기록, 다른 기업 계속 실행 | 유지, 오류 기록까지 실패하는 상황 검증 |
-| 저장 중 DB 예외 | 기업 공시 배치와 성공 기준일 함께 롤백 | 유지, 실제 PostgreSQL CHECK 오류로 중간 삽입 롤백 검증 |
-| 수집 도중 종료 | prepare에서 최초 기준일·시도 시각 커밋, 성공 기준일은 complete에서만 갱신 | 유지, 서비스 재생성 후 DB 기준 복원 검증 |
-| 반복 조회·정정공시 | rcept_no UNIQUE + ON CONFLICT DO NOTHING, 기존 데이터 불변 | 유지, 장애 후 반복 수집/기존 데이터 보존 검증 |
-| 일시적 API 오류 | 즉시 실패하고 다음 수집 때 복구 | 페이지/기업 ZIP 요청별 제한 재시도 추가 |
-| 요청 한도 초과 | 현재 수집 실행의 나머지 기업/분류 중단 | 공유 클라이언트의 실행 간 cooldown 추가 |
-| 스케줄러 실패·겹침 | fixed delay, collector/pipeline guard, 예외 포착 | 유지, 실패 후 실제 다음 타이머 실행 검증 |
+| 관심 기업 3개 이상 관리 | PASS | 4D 테스트: Mock 삼성전자·SK하이닉스·NAVER 검색/등록/목록/모니터링 |
+| 기업 고유번호·종목코드 매핑 | PASS | ZIP/XML·Entity·DB 제약 및 3개 기업의 문자열/선행 0 보존 |
+| OpenDART 공시 목록 조회 | PASS | Mock HTTP RestClient의 요청·응답·페이지·오류 검증. 실제 서버는 이번 미호출 |
+| 스케줄러 기반 자동 수집 | PASS | 짧은 주기 실제 Scheduled 콜백·준비 상태·중복 guard·예외 후 재실행 |
+| 공시 중복 저장 방지 | PASS | rcept_no UNIQUE·ON CONFLICT·반복 수집 PostgreSQL 테스트 |
+| 최초/증분 수집 구분 | PASS | 고정 초기 기준·initial_import·성공 체크포인트·중첩 범위 |
+| 공시 유형별 분류 | PASS | A~E 유형별 전체 페이지/rcept_no 매핑·미분류/F~J 비추론 |
+| 기업별 알림 조건 | PASS | 조건/기업/모니터링 활성화와 비활성 기간·지연 분류 검사 |
+| 이메일 전송 구조 | PASS | Mock 발송과 실제 JavaMailSender의 폐기용 127.0.0.1 SMTP·UTF-8 수락 |
+| 중복 알림 방지 | PASS | 수신자/채널/공시 UNIQUE·동시 생성/선점·SENT/UNKNOWN 제외 |
+| 이메일 실패 처리 | PASS | 인증/4xx/5xx/timeout·상한/기한·DB 저장 실패·UNKNOWN 테스트 |
+| API 장애 후 공시 복구 | PASS | 페이지 중간 실패·부분 실패·DB 롤백·중단 상태에서 기준 복원 |
+| 공시 목록 REST API | PASS | 기업/유형 AND 필터·정렬·페이지·NULL·링크·잘못된 입력 |
+| PostgreSQL 통합 | PASS | 실제 PostgreSQL 연결·Flyway V1~V4·제약조건·E2E |
+| Swagger UI/OpenAPI | PASS | 실제 HTTP UI 응답·모든 Controller 경로/메서드·DTO·상태·페이지 계약 |
+| README/개발 문서 | PASS | 현재 설정/경로/실행 명령·운영 정책·한계로 최종 정리 |
+| 이번 실제 OpenDART·Gmail 연동 | NOT VERIFIED | 외부 태그 테스트 미실행, 실발송 없음 |
+| 실제 3기업 신규 공시의 최종 이메일 수신 | NOT VERIFIED | Mock 수락과 실제 수신함 도착은 구분 |
+| 실제 10분 주기의 장시간 운영 | NOT VERIFIED | 타이머는 짧은 주기 테스트로 검증 |
+| OS 강제 종료/실제 DB 네트워크 단절 | NOT VERIFIED | 저장 상태·DB CHECK 오류·위임 Store 예외로 모의 |
+| 다중 인스턴스 전체 안정성 | NOT VERIFIED | 단일 앱 MVP. DB 선점 경쟁 검증을 전체 분산 안정성으로 확장하지 않음 |
+| Exactly-once/외부 SMTP 최종 전달 보장 | NOT VERIFIED | 보장 대상이 아님. SMTP와 DB는 하나의 트랜잭션이 아님 |
 
-## 오류 분류와 재시도
+## 2. Phase 4 개발 결과
 
-[OpenDART 공식 공시검색 가이드](https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001)를 확인했다.
-공식 코드의 의미와 애플리케이션 정책을 구분한다. 아래 재시도 횟수·대기는 DartWatch의 MVP 정책이다.
+| 단계 | 결과 |
+| --- | --- |
+| 4A | 공통 OpenDART 요청 정책, 페이지별 제한 재시도·지수 백오프/jitter, 영구 오류 제외·한도 cooldown. 기존 원자적 저장·체크포인트 유지 |
+| 4B | 혼합 SMTP/I/O 불확실성 보수 판정, 낮아진 재시도 상한 정리, 중단/커밋 응답 유실·동시 처리 검증, 실제 SMTP 테스트 분리 |
+| 4C | 저장 공시 GET API, 공통 ProblemDetail 보완, 추적 가능한 안전한 로그, 전체 Swagger/REST 계약과 PostgreSQL 테스트 격리 |
+| 4D | 기존 A~E 시나리오 재사용, 3기업 최종 통합 테스트 1개 추가, clean 전체 검증·체크섬/기본값/문서 정리·최종 판정 |
 
-| 응답/장애 | 오류 종류 | 처리 |
-| --- | --- | --- |
-| 000 / 013 | 정상 / 빈 결과 | 공시 목록은 정상 처리. 2페이지 이후 013은 불완전 목록으로 실패 |
-| 010·011·012·901 / HTTP 401·403 | AUTHENTICATION | 즉시 실패, 현재 실행의 남은 기업/분류 중단 |
-| 020 / HTTP 429 | RATE_LIMIT | 즉시 실패, 현재 실행 중단 및 공유 cooldown |
-| 021·100 | INVALID_REQUEST | 요청 범위/파라미터 문제, 즉시 실패 |
-| 014·101 등 기타 거절 | API_REJECTED | 즉시 실패 |
-| 800·900 | UPSTREAM_SYSTEM | 제한 재시도 |
-| HTTP 5xx | HTTP_SERVER | 제한 재시도 |
-| 기타 비정상 HTTP | HTTP | 재시도 안 함 |
-| 연결 오류 / 타임아웃 | NETWORK / TIMEOUT | 제한 재시도 |
-| 잘못된 JSON/XML·상충하는 페이지·중복 접수번호·상한 초과 | INVALID_RESPONSE | 재시도 안 함, 다음 실행에서 범위 전체 재확인 |
-| 종료 interrupt | INTERRUPTED | interrupt 유지, 추가 기업·분류 호출 중단 |
+4D의 프로덕션 Java 코드·DB 스키마·의존성 변경은 없다. 설정 예제는 기존 분류 환경변수만 보완한다.
+기존 Flyway V1~V4는 수정하지 않았다. 운영 데이터 삭제, Commit·Push·배포는 수행하지 않았다.
 
-`OpenDartRequestPolicy`는 기존 RestClient 내부에 연결했다. 기업 ZIP/XML·전체 공시·유형별 조회가 동일 정책과
-cooldown을 공유한다. 응답 본문의 status 검사를 재시도 안쪽에서 수행하므로 HTTP 200의 800/900도 처리한다.
-원본 예외·응답 message·인증된 URI는 로그/응답에 첨부하지 않는다. 재시도 로그는 오류 종류·횟수·대기만 기록한다.
+## 3. OpenDART 재시도와 수집 체크포인트
 
-기본 최초 요청 1회 + 재시도 최대 2회다. 대기는 `min(최대 지연, 초기 지연 × 2^재시도순번)`의 50~100%로
-무작위화한다(equal jitter). 기본 첫 대기 0.5~1초, 다음 1~2초다. 실제 요청 시간은 기존 연결/읽기 타임아웃을 따른다.
-설정 상한으로 재시도는 최대 5회, 회당 대기는 최대 30초로 제한한다. 0회면 즉시 실패 정책으로 되돌릴 수 있다.
+### 오류와 호출량
 
-재시도 단위는 **현재 HTTP 페이지**다. 앞 페이지는 메모리에 유지하며 성공한 재시도 결과를 한 번만 추가한다.
-전체 페이지 메타데이터·접수번호 검증을 통과한 후에만 DB 저장한다. 재시도 소진/메타데이터 변경 시 부분 결과를
-저장하지 않으며, 다음 수집 실행에서 DB 체크포인트를 기준으로 1페이지부터 다시 조회한다.
-수집 서비스나 스케줄러에서 별도 중첩 재시도를 추가하지 않아 호출량이 곱절로 증가하지 않게 했다.
+| 응답/장애 | 정책 |
+| --- | --- |
+| 000 / 첫 페이지 013 | 정상 / 빈 목록. 뒤 페이지 013은 불완전 결과로 실패 |
+| 010·011·012·901 / HTTP 401·403 | AUTHENTICATION. 재시도 없이 현재 기업 이후 추가 호출 중단 |
+| 020 / HTTP 429 | RATE_LIMIT. 재시도 없이 현재 실행 중단, 공유 cooldown |
+| 021·100 / 기타 API 거절 / HTTP 기타 오류 | INVALID_REQUEST / API_REJECTED / HTTP. 재시도 없음 |
+| 800·900 / HTTP 5xx / 연결 오류 / timeout | UPSTREAM_SYSTEM / HTTP_SERVER / NETWORK / TIMEOUT. 제한 재시도 |
+| 잘못된 XML/JSON·페이지 메타데이터·중복 페이지·용량/페이지 상한 초과 | INVALID_RESPONSE. 재시도 없이 다음 수집에서 전체 범위 재확인 |
+| 종료 interrupt | interrupt 유지, 추가 기업/분류 호출 중단 |
 
-020/429 이후 기본 1시간 동안 모든 후속 클라이언트 요청은 외부 통신 없이 RATE_LIMIT으로 실패한다.
-차단 중 재호출로 cooldown을 연장하지 않는다. 만료 후 첫 요청을 허용하고 다시 한도 오류면 새 cooldown을 시작한다.
-이는 공급자 한도 해제 시각의 추정이 아니다. 공식 문서상 한도는 키별로 다를 수 있어 해제를 보장하지 않는다.
-현재 HTTP Retry-After는 별도로 해석하지 않으며, 공급자 설정에 맞춰 cooldown을 조정해야 한다.
-이미 전송 중인 다른 요청은 취소하지 않는다. cooldown은 단일 프로세스 메모리이므로 재시작하면 초기화된다.
+기본 최초 1회 + 재시도 2회이며 허용 상한은 추가 0~5회다. 대기는
+`min(최대 지연, 초기 지연 × 2^재시도순번)`의 50~100%(equal jitter)다.
+기본 초기 1초·최대 10초, 설정 가능 범위는 각각 1ms~30초. 연결/읽기 timeout은 기본 5/30초다.
 
-## 체크포인트와 스케줄러
+실패한 현재 HTTP 페이지만 재시도하고 완료된 앞 페이지는 다시 추가하지 않는다.
+수집·분류·기업 ZIP 다운로드가 같은 클라이언트 정책을 사용하며 서비스/스케줄러에서 중첩 retry를 하지 않는다.
+020/429 뒤 기본 1시간(설정 1분~1일)은 외부 요청 없이 차단한다. 차단 중 재호출로 기간을 연장하지 않는다.
+만료는 공급자 한도 해제를 보장하지 않는다. Retry-After 해석·cooldown 영속화는 없고 재시작 시 초기화된다.
+공식 코드: [OpenDART 공시검색 가이드](https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001).
 
-기존 `CollectionStore`와 V2 수집 상태를 그대로 사용한다.
+### 저장과 재시작
 
-1. prepare: 최초 종료일을 한 번 고정하고 최근 시도 시각을 커밋한다.
-2. 모든 페이지 HTTP 호출: DB 트랜잭션 밖에서 실행한다.
-3. complete: 관심/활성/기준을 재확인한 뒤 공시 배치와 성공 조회일·성공 시각을 원자적으로 커밋한다.
-4. 실패: 성공 조회일/성공 시각을 유지하고 안전한 오류 코드만 별도 기록한다.
+1. 짧은 prepare 트랜잭션에서 최초 종료일(initial_sync_through)과 수집 시작/시도 시각을 저장한다.
+2. DB 트랜잭션 밖에서 모든 페이지를 조회한다.
+3. 완료 단계에서 기업 상태/기준을 재확인하고 신규 공시·성공 조회일·성공 시각을 함께 커밋한다.
+4. 실패 시 성공 기준은 전진하지 않는다. 오류 기록 자체가 DB 장애로 실패해도 다음 실행은 기존 DB 기준에서 시작한다.
 
-DB 장애로 오류 코드 기록까지 실패해도 로그만 남기고 guard를 해제한다. 실패 로그조차 DB에 남지 않을 수 있으나
-성공 체크포인트를 임의로 전진시키지 않는다. DB 자체 재시도는 추가하지 않으며 다음 실행에서 DB 복구를 재확인한다.
-COMMIT 후 응답 유실로 성공/실패 판단이 불확실해도 다음 조회는 DB의 실제 성공 기준과 UNIQUE를 사용한다.
+최초 범위는 고정 종료일 이전 30일, 이후는 `[마지막 성공 조회일 - 3일, 실행 당일]`이다.
+중단 기간을 당일 기준 최근 며칠로 축소하지 않는다. 초기 실패 복구 중 INITIAL_DAYS를 줄이지 않는다.
+접수일이 최초 기준일 이하인 공시는 늦게 발견해도 initial_import=true다. 재수집은 기존 메타데이터/탐지 시각/초기 구분을 덮어쓰지 않는다.
+전체 페이지가 불완전하거나 DB 배치가 실패하면 부분 삽입·완료 기록을 남기지 않는다. rcept_no UNIQUE와 ON CONFLICT를 함께 사용한다.
 
-기본 첫 범위는 고정 최초 종료일 이전 30일, 이후는 `[마지막 성공일 - 3일, 실행 당일]`이다.
-중단 후에도 당일 기준 최근 며칠로 축소하지 않는다. 최초 실패 복구 도중 `COLLECTION_INITIAL_DAYS`를 줄이지 않는다.
-기존 접수번호의 메타데이터·collected_at·initial_import는 갱신하지 않는다. 정정공시는 별도 접수번호로 보존한다.
+일반 기업별 실패는 다른 기업을 계속 처리한다. 인증/설정/한도/interrupt는 추가 API 호출을 중단한다.
+기본 10분 fixed delay와 COLLECTION_ENABLED 기본 false를 유지한다. 이전 자동 작업이 끝난 뒤 다음 주기까지 기다린다.
+collector/pipeline AtomicBoolean은 단일 앱의 중복 수집/후속 처리만 막고, 재시작 후에는 DB 체크포인트를 읽는다.
 
-`COLLECTION_ENABLED` 기본 false와 10분 fixed delay를 유지한다. 이전 자동 작업이 끝난 뒤 10분을 기다린다.
-수동/자동 동시 수집은 기존 collector AtomicBoolean으로 거절하고 자동 후속 분류까지 기존 pipeline guard로 보호한다.
-일반 기업별 실패는 다른 기업을 계속 처리하며, 인증/설정/한도/종료 interrupt는 추가 요청을 중단한다.
-타이머 콜백은 예외를 포착하므로 다음 실행이 취소되지 않는다. 재시작 시 guard는 초기화되고 DB 기준을 다시 읽는다.
-다중 인스턴스 잠금은 추가하지 않았다.
+## 4. 필터·알림 중복 방지·SMTP 복구
 
-Phase 3 이메일 로직·발송 API·발송 조건·트랜잭션은 변경하지 않았다. 수집이 실패한 기업은 후속 분류/알림 생성을
-실행하지 않는다. 기존에 적격 판정을 받아 대기 중인 이메일 작업은 독립 스케줄러의 기존 정책을 따른다.
+### 적격 조건과 작업 생성
 
-## 설정
+관심 등록·모니터링·기업 알림·해당 EMAIL 유형 조건이 모두 활성이고, A~E로 확인된 공시만 검사한다.
+initial_import=false이고 collected_at이 기업/조건/수신자의 전역 활성 기준보다 모두 엄격히 뒤여야 한다.
+접수일만으로 신규 여부를 판단하지 않는다. 재활성화는 기준을 새로 잡으며 연속 활성 재시작은 기존 기준을 유지한다.
+분류 지연은 최초 탐지 시각을 바꾸지 않는다. 유형 조회 실패 시 확인 시각/부분 분류를 커밋하지 않는다.
 
-| 환경변수 | 기본값 | 허용 범위 |
-| --- | --- | --- |
-| OPENDART_MAX_RETRIES | 2 | 0~5, 최초 요청 제외 추가 시도 |
-| OPENDART_RETRY_INITIAL_DELAY | PT1S | 1ms~30초 |
-| OPENDART_RETRY_MAX_DELAY | PT10S | 1ms~30초, 초기 지연보다 작으면 이 상한 우선 |
-| OPENDART_RATE_LIMIT_COOLDOWN | PT1H | 1분~1일 |
+A~E 검색의 rcept_no/접수일로 기존 행에만 분류를 연결하고 추가 공시를 삽입하지 않는다. 기본 100개/30일 배치,
+미분류 재확인은 24시간이다. 확인된 유형은 재사용한다. F~J 추가 조회/임의 E 매핑은 하지 않는다.
 
-기존 연결 5초/읽기 30초·페이지 크기·페이지 상한·수집 주기/조회 범위 설정은 유지한다. 설정 변경은 재시작 후 반영한다.
-일반 transient 오류는 기업/요청별 재시도만 제한하며 전체 공급자 장애에 대한 circuit breaker는 추가하지 않았다.
+알림은 (disclosure_id, channel, 정규화 recipient) UNIQUE, EXISTS 필터, ON CONFLICT로 한 논리 작업만 만든다.
+SENT·UNKNOWN·CANCELLED·영구 실패는 반복 수집/분류로 다시 생성하지 않는다. 과거 NULL 수신자 이력도 보수적으로 중복을 막는다.
+현재 구현은 단일 이메일 주소이며 local part까지 소문자로 정규화한다.
 
-## 검증과 한계
+### 상태 전이와 복구
+
+```text
+PENDING → DB 선점 커밋 PROCESSING → SMTP 수락 → 별도 DB 결과 SENT
+                                 ├→ 명확한 실패 FAILED → 안전한 경우만 기한/상한 내 재시도
+                                 └→ 불확실 UNKNOWN → 자동 재전송 금지
+PENDING/재시도 FAILED → 정책 해제 → CANCELLED
+```
+
+선점은 FOR UPDATE SKIP LOCKED와 UUID 토큰을 사용한다. 누적 attempt_count와 시각을 커밋한 후 SMTP를 호출한다.
+결과는 PROCESSING 상태와 선점 토큰이 같을 때만 반영한다. SMTP 동안 DB 트랜잭션을 유지하지 않으며 공시 저장과도 분리한다.
+
+| 오류/중단 지점 | 처리 |
+| --- | --- |
+| 명시적 4xx·확실한 연결 성립 실패 | FAILED, 기본 10분 뒤·추가 최대 3회. 총 4회 선점 이내 |
+| 인증·5xx·설정/메시지 오류 | 영구 FAILED. 같은 작업 자동 재시도 없음 |
+| 일반 timeout/I/O·일부 수락·혼합 예외·예외 그래프 검사 상한 초과 | UNKNOWN. 실제 미수락을 확신할 수 없으므로 자동 재발송 금지 |
+| connect timeout을 포함한 MailConnectException | 연결 성립 전 오류로 제한 재시도 가능 |
+| 재시도 상한 감소 | 다음 dispatch에서 상한에 도달한 FAILED의 retryable/다음 시각 제거, 원인·횟수·시각 보존 |
+| PENDING 커밋 후 중단 | 연속 활성 기준을 유지하면 재시작 후 정상 선점 가능 |
+| PROCESSING/SMTP 중단 | 재선점 금지. 기본 10분 후 다음 활성 dispatch에서 UNKNOWN |
+| 선점 커밋 응답 유실 | 선점을 확인 못한 호출자는 SMTP를 실행하지 않음. DB PROCESSING이면 이후 격리 |
+| SMTP 수락 후 DB 저장 전 종료/저장 실패 | 재발송하지 않음. UNKNOWN 저장을 별도 시도, 이것도 실패하면 PROCESSING을 남겨 격리 |
+| SENT 커밋 후 응답 유실 | fallback UNKNOWN 저장은 CAS에서 거절. 실제 DB SENT 보존 |
+| 늦은 작업자 결과 | 복구된 UNKNOWN을 덮어쓰지 못함 |
+
+최대 추가 재시도는 0~10회, 간격과 processing timeout은 최소 1분이다. 상한을 나중에 높여도 종료된 작업은 자동 부활하지 않는다.
+복구는 전역 활성 dispatch에서 실행한다. 타이머가 꺼져 있으면 명시적 dispatch까지 기다린다. 이 요청 자체가 실제 전송을 일으킬 수 있다.
+SENT는 SMTP 수락이지 수신함 전달이 아니다. 결과 응답 통계는 unknown인데 DB는 SENT일 수도 있어 DB 이력이 기준이다.
+UNKNOWN 강제 재전송 API는 없다. SMTP와 DB는 원자적이지 않아 exactly-once를 보장하지 않는다.
+
+## 5. 운영 로그·REST·설정
+
+- 수집 로그: runId·watchId/corpCode·조회 범위·시작/종료·fetched/inserted/duplicates·durationMs·안전한 오류 코드.
+- 알림 로그: 별도 runId·deliveryId/rceptNo/channel·DB attempt/retryCount·SMTP 결과와 DB 기록 확인 여부·시간·오류.
+- INFO는 정상/취소/집계, WARN은 장애/불확실성, ERROR는 예상하지 못한 API 내부 오류다.
+- API Key·비밀번호·수신 주소·선점 토큰·원본 예외/SQL/인증 URI는 제외한다. Hibernate 원본 SQL 예외 로깅도 끈다.
+- 저장 목록은 GET /api/disclosures. companyId/query/type(A~J) AND 필터, 날짜/접수번호 내림차순, page>=0·size 1~100.
+  미분류·과거 공시도 읽을 수 있지만 알림 대상으로 승격하지 않는다. 기업명은 현재 디렉터리 기준, query wildcard 문자는 글자 그대로 검색한다.
+- 성공 응답은 기존 DTO/페이지 형식, 오류는 ProblemDetail + code(상위 API 상태가 있으면 upstreamStatus)다.
+  등록 201/삭제 204, 입력 400, 경로 404, 메서드 405(Allow 유지), 응답 형식 406, 요청 형식 415,
+  데이터 충돌/잠금 409, DB 불가 503, 내부 500, 상위 API 종류에 따라 502/503/504.
+- 수집 HTTP 200은 전체 성공이 아니다. 본문 기업별 상태와 체크포인트를 확인한다.
+- 수동 POST /api/collections는 수집만 한다. 자동 알림이 켜져 있으면 데이터가 이후 자동 처리 대상이 될 수 있다.
+- 모든 실제 API가 OpenAPI에 있으며 필수 DTO·유형·페이지·주요 오류·실제 전송 확인과 UNKNOWN 의미를 문서화했다.
+- 기본 COLLECTION_ENABLED / NOTIFICATION_ENABLED / NOTIFICATION_SCHEDULER_ENABLED는 모두 false.
+  SMTP 인증/STARTTLS enable/required는 true, 연결/읽기/쓰기 각 5000ms, UTF-8, mail debug/기동 연결 검사는 false다.
+
+환경변수 전체와 실행·SMTP 계정 설정·API 예시는 [README](../README.md)를 기준으로 한다.
+
+## 6. 최종 검증과 A~E 시나리오 근거
+
+실행 명령(외부 API/실제 메일 없음):
 
 ```powershell
 $env:RUN_LIVE_SMTP_TEST='false'
-.\gradlew.bat build integrationTest --no-daemon --console=plain
+docker compose config --quiet
+docker compose up -d --wait postgres
+.\gradlew.bat clean build integrationTest --no-daemon --console=plain
 ```
 
-외부 OpenDART는 Mock HTTP 또는 Mockito로 대체한다. PostgreSQL은 기존 로컬 컨테이너와 소유한
-`dw_test_<uuid>` 임시 스키마를 사용한다. 운영 행·기존 Flyway SQL은 수정하지 않는다.
-DB 장애 주입용 CHECK는 임시 스키마에만 적용하고 finally에서 제거한다.
-종료 복구는 prepare 후 complete/fail 없이 서비스 객체를 재생성해 검증하며 실제 OS 프로세스 강제 종료 실험은 아니다.
+| 검증 | 통과 | 실패 | 오류 | 건너뜀 |
+| --- | ---: | ---: | ---: | ---: |
+| 기본/단위 test | 144 | 0 | 0 | 0 |
+| 실제 PostgreSQL integrationTest | 93 | 0 | 0 | 0 |
+| 합계 | 237 | 0 | 0 | 0 |
 
-실행 결과 (2026-10-24):
+전체 clean 빌드 성공. 기존 236개에 3기업 최종 E2E 한 개만 추가했다. 외부 live/smtp-live 테스트는 제외했으며 건너뜀 수에 포함하지 않는다.
+기본 테스트의 폐기용 127.0.0.1 SMTP는 실제 JavaMailSender의 UTF-8·수락·DATA 후 응답 유실을 검증하고 외부로 전달하지 않는다.
 
-- Java 21 `build integrationTest` 성공. 기본/단위 119개 통과, 실패·오류 0개, 1개 건너뜀.
-- PostgreSQL 통합 76개 통과, 실패·오류·건너뜀 0개. 합계 195개 통과, 1개 건너뜀.
-- 건너뛴 1개는 작업 전부터 있던 미추적 `LiveSmtpSmokeTest`다. 파일은 변경하지 않고
-  `RUN_LIVE_SMTP_TEST=false`로 명시적으로 실행을 막았다.
-- 기존 Phase 3 테스트를 포함한 회귀 검증, 신규 재시도·백오프·한도 차단·페이지 실패·DB 롤백·복구 검증을 통과했다.
-- 기존 폐기용 루프백 SMTP 테스트는 실행했고 외부 SMTP 발송은 하지 않았다.
-- `liveTest`는 실행하지 않았다. 실제 OpenDART 호출도 없으며 공식 가이드만 조회했다.
-- PostgreSQL 컨테이너 healthy, Flyway V1~V4 성공 상태, 테스트 종료 후 남은 `dw_test_` 스키마 0개를 확인했다.
-- 기존 마이그레이션과 `notification` 프로덕션 코드 변경 없음, `git diff --check` 통과.
-
-## 남은 제한과 Phase 4B 주의사항
-
-- 실제 공급자 장애·실제 SMTP·장시간 운영·프로세스 강제 종료/DB 컨테이너 중지 실험은 별도 검증이 필요하다.
-- 중첩 3일보다 늦게 게시된 과거 공시는 자동 복구를 보장하지 않는다. 기간별 백필/감사는 추후 별도 설계한다.
-- 1000페이지 상한을 넘는 긴 중단/대량 공시는 실패로 유지한다. 범위 분할 백필은 이번에 추가하지 않았다.
-- 한도 cooldown은 재시작 간 영속화하지 않으므로 반복 재시작을 이용한 호출은 피한다.
-- Phase 4B에서 수집 재시도를 이메일 재시도로 연결하지 않는다. 기존 SENT/UNKNOWN·활성 기준·DB claim 정책을 유지한다.
-- 한도 차단 중 수동 분류/기업 동기화도 실패할 수 있다. 오류 코드와 체크포인트를 확인하고 불필요한 재실행을 피한다.
-
-## Phase 4B — 이메일 알림 안정성
-
-### 기존 구조 분석
-
-`NotificationService`라는 클래스는 없으며 `NotificationDispatchService`가 생성/전송을 조정한다.
-`NotificationWorkStore`는 짧은 DB 트랜잭션, `NotificationSender`/`EmailNotificationSender`는 실제 SMTP,
-`NotificationScheduler`는 준비 완료 후 기본 1분 fixed delay 처리를 담당한다.
-`NotificationDelivery`/Repository와 V4 제약조건·토큰·수신자별 전역 활성 기준을 재사용했다.
-
-| 요구사항 | 기존 충족 내용 | 4B 조치 |
-| --- | --- | --- |
-| 중복 생성 | 공시·채널·정규화 수신자 UNIQUE, EXISTS 조건, ON CONFLICT | 유지, 여러 조건+동시 생성 통합 검증 |
-| 과거/비활성 기간 제외 | initial_import·collected_at·기업/유형/전역 활성 기준 | 유지, 지연 분류와 재활성화 후 실제 작업 생성 검증 |
-| 중복 전송 | SKIP LOCKED 선점 커밋 후 SMTP, PROCESSING+UUID 결과 CAS | 유지, SMTP 대기 중 동시 dispatch 검증 |
-| 제한 재시도 | 안전한 FAILED만 기한/시도 상한 내 선점 | 유지, 재시작 전후 기한/수락 검증 |
-| 상한 설정 감소 | 선점 쿼리에서 상한 이상 제외 | 잔여 retryable/next_attempt_at도 정리하도록 보완 |
-| 불확실성 | 타임아웃·일부 수락·오래된 PROCESSING → UNKNOWN | 혼합 I/O 예외·억제된 예외·탐색 상한 초과도 보수적으로 격리 |
-| 결과 저장 실패 | UNKNOWN 저장 시도, 실패 시 PROCESSING 유지 후 격리 | 실제 DB 쓰기 오류·커밋 응답 유실 모의 검증 |
-| 실제 SMTP 테스트 | 환경변수 true일 때 실행될 수 있는 일반 테스트 | smtp-live 태그 + 별도 smtpSmokeTest 작업으로 분리 |
-
-### 변경 내용과 재시도
-
-- `EmailNotificationSender`: cause/nextException/메시지별 예외와 suppressed 예외를 확인한다.
-  일반 I/O·읽기/쓰기 타임아웃이 명시적 SMTP 오류와 섞이면 UNKNOWN을 우선한다.
-  100개 이내에서 예외 그래프를 완전히 검사하지 못해도 UNKNOWN이다.
-- `MailConnectException`은 연결 성립 실패를 나타내므로 내부 connect timeout을 포함해 CONNECTION_FAILED로 제한 재시도한다.
-  독립적인 일반 timeout은 전송 시점을 확정할 수 없어 UNKNOWN이다. 일부 validSent 주소가 있으면 항상 UNKNOWN이다.
-- 명시적 4xx 거절과 확실한 연결 실패만 재시도한다. 인증 오류·5xx 거절·구성/메시지 오류는 영구 FAILED로 유지한다.
-- 기존 최초 1회 + 최대 3회 재시도, 간격 10분, 최대 설정 0~10회와 최소 간격 1분을 유지한다.
-  SMTP 실패의 backoff를 새로 추가하지 않았다. 기존 고정 간격과 배치 상한으로 호출량을 제한한다.
-- `stopExhaustedRetries()`는 다음 dispatch에서 현재 상한에 도달한 FAILED 행의 retryable을 false,
-  next_attempt_at을 NULL로 바꾼다. 마지막 원인·시도 횟수·시각은 유지한다.
-  상한을 나중에 다시 높여도 이미 종료한 작업을 자동 부활시키지 않는다.
-- SENT·UNKNOWN·CANCELLED·영구 실패는 생성/선점/자동 재전송 대상으로 전환하지 않는다.
-
-예외 구조의 공식 근거는 [Spring MailSendException](https://docs.spring.io/spring-framework/docs/6.2.x/javadoc-api/org/springframework/mail/MailSendException.html),
-[Angus SMTPSendFailedException](https://eclipse-ee4j.github.io/angus-mail/docs/api/org.eclipse.angus.mail/org/eclipse/angus/mail/smtp/SMTPSendFailedException.html)이다.
-혼합된 불확실성에서 UNKNOWN을 우선하는 것은 중복 위험을 줄이기 위한 DartWatch의 보수적 정책이다.
-
-### 중단/DB 장애 복구
-
-| 중단 지점 | 다음 실행 정책 |
+| 시나리오 | 이번에 재실행한 근거 |
 | --- | --- |
-| 작업 생성 커밋 전 | 생성이 롤백되면 이후 적격 후보 생성에서 재확인 |
-| PENDING 커밋 후 | 같은 수신자·연속 활성 기준을 유지한 재시작에서 기한이 된 작업을 한 번 선점 |
-| 선점 COMMIT 전 실패 | 롤백된 PENDING/FAILED만 이후 재선점 가능, SMTP 호출 없음 |
-| 선점 COMMIT 응답 유실 | 선점 성공을 확인하지 못한 호출자는 SMTP를 실행하지 않음. DB가 PROCESSING이면 timeout 후 UNKNOWN |
-| PROCESSING/SMTP 호출 중 종료 | timeout 전 재선점 금지, 기본 10분 이후 다음 dispatch에서 UNKNOWN 격리 |
-| SMTP 수락 후 DB 기록 전 종료 | PROCESSING을 재발송하지 않고 이후 UNKNOWN 격리 |
-| SENT 기록 실패 | 별도 UNKNOWN 저장 시도. 이것도 실패하면 PROCESSING을 유지하고 이후 격리 |
-| SENT COMMIT 성공 후 응답 유실 | fallback UNKNOWN 저장은 상태·토큰 CAS에서 거절됨. DB SENT를 보존하고 재발송하지 않음 |
-| 늦은 작업자의 결과 도착 | 복구된 UNKNOWN의 상태/토큰과 맞지 않아 덮어쓰기 금지 |
+| A 관심 기업 관리 | PhaseFourDIntegrationTests: Mock 3기업 디렉터리 동기화·재사용·기업명/종목코드 검색·등록·목록·모니터링 끄기/켜기 |
+| B 공시 수집 | PhaseTwoIntegrationTests, PhaseFourAIntegrationTests: 초기/증분·중복·부분 실패·DB 롤백·기준 복원. 4D: 3기업 3→6공시, 과거 미발송 |
+| C 분류/필터 | PhaseThreeAIntegrationTests: A~E/미분류·여러 조건·비활성/재활성·지연 분류. 4D: 3기업별 A/B/C 매칭 |
+| D 이메일 | PhaseThreeB/C·PhaseFourB/CIntegrationTests: Mock SMTP 수락·재시도·영구/불확실 실패·중복 방지. 4D: 3작업 SENT 뒤 반복 처리 추가 발송 0 |
+| E 장애/재시작 | OpenDartClientTests/OpenDartRetryTests·PhaseFourA/BIntegrationTests: 페이지 실패, API 재시도/억제, prepare 후 중단, PENDING/PROCESSING 복구, 커밋 응답 유실·선점 경쟁 |
+| API/Swagger/로그 | DartWatchApplicationTests·PostgresApplicationTests·OperationalLoggingTests: 실제 라우트/OpenAPI·UI HTTP 응답·모델/상태·입력·민감정보 제외 |
 
-SMTP 호출은 공시 저장 및 선점/결과 DB 트랜잭션 밖에서 실행한다. 전송 결과를 기록하지 못했다고
-SMTP를 다시 호출하거나 PENDING으로 되돌리지 않는다. 결과 저장 응답이 유실된 dispatch의 응답 통계는 unknown으로
-나올 수 있지만 실제 DB에는 SENT가 커밋되었을 수 있다. 이후 상태 판단은 DB 이력을 기준으로 한다.
+4D fixture의 삼성전자·SK하이닉스·NAVER는 요청 시나리오를 위한 Mock 데이터이며 corp_code는 가상 코드다.
+이 테스트의 Mock 발송 성공을 실제 해당 기업 공시 수신으로 해석하지 않는다.
 
-복구는 전역 메일 활성화 상태의 dispatch에서 수행한다. 자동 처리 타이머가 꺼져 있으면 안전한 복구도 다음 명시적
-dispatch까지 기다린다. 전역 비활성화 상태에서 강제로 전송/복구 실행을 허용하는 API는 추가하지 않았다.
-PROCESSING은 기존 상태별 이력 API로 조회할 수 있다. 복구 시각은 timeout 경과 후 다음 실행 시점이다.
-SMTP와 DB는 하나의 트랜잭션이 아니므로 **exactly-once 전달을 보장하지 않는다**.
-SENT는 SMTP 서버 수락이며 실제 수신함 도착·열람 확인은 아니다.
+Flyway는 새 임시 스키마에 V1~V4를 적용하고 기존 데이터가 있는 상태에서 validate/체크섬을 확인했다.
+기존 V2→V3, V3→V4 데이터 보존/이전 테스트도 통과했다. 실제 운영 DB 재기동 실험으로 확대 해석하지 않는다.
+실제 PostgreSQL 연결과 실행 중 HTTP 서버의 Health/OpenAPI/Swagger 응답은 PostgresApplicationTests로 확인한다.
+개발 DB의 기존 V1~V4 성공 메타데이터와 저장소 마이그레이션 무변경, 종료 후 남은 dw_test_ 스키마 0개를 확인했다.
+Compose 설정 검사와 PostgreSQL healthy 상태, .env Git 제외, git diff --check도 확인했다.
 
-### SMTP 설정과 실제 테스트 분리
+### 과거 실제 연동 기록과 이번 실행의 구분
 
-기존 환경변수 이름과 기본값을 유지한다. 연결/읽기/쓰기 각각 5000ms, SMTP 인증과 STARTTLS enable/required는 true,
-UTF-8 MIME 제목·본문, mail debug 및 기동 연결 검사는 false다. `.env`나 비밀번호 값은 수정하지 않았다.
-`NOTIFICATION_ENABLED=false`, `NOTIFICATION_SCHEDULER_ENABLED=false`가 기본이며 `COLLECTION_ENABLED`와 독립적이다.
+- PHASE_2.md·PHASE_3.md에는 실제 OpenDART liveTest 1개 성공(ZIP·최소 목록·임시 DB 저장) 기록이 있다.
+  이번에는 재호출하지 않았다. 실제 유형별 A~E 검색도 이번 실행에서 확인하지 않았다.
+- Gmail SMTP Smoke Test 성공은 이전 단계에서 사용자가 제공한 이력이다. 이번에는 재발송하거나 수신함을 확인하지 않았다.
+- 이번 일반 테스트에 LiveSmtpSmokeTest/OpenDartLiveTests는 포함하지 않는다.
+  실제 SMTP는 별도 smtpSmokeTest + OS RUN_LIVE_SMTP_TEST=true가 필요하며 승인 없이 실행하지 않는다.
+  이 테스트가 직접 읽는 MAIL_FROM/NOTIFICATION_EMAIL_TO도 OS 환경변수로 공급해야 한다.
 
-`LiveSmtpSmokeTest`의 발송 본문과 RUN_LIVE_SMTP_TEST 조건은 유지하고 smtp-live 태그를 추가했다.
-일반 `test`/`build`/`integrationTest`와 OpenDART `liveTest`는 이 태그를 제외하므로 환경변수가 true여도
-일반 작업에 포함되지 않는다. 실제 발송은 **명시적으로 승인받은 별도 실행에서만** 아래 두 조건으로 가능하다.
+## 7. 알려진 제한과 후속 과제
 
-1. OS 환경변수 `RUN_LIVE_SMTP_TEST=true`와 기존 MAIL_* / NOTIFICATION_EMAIL_TO 설정.
-2. 별도 `gradlew.bat smtpSmokeTest` 작업 실행. 캐시된 성공으로 대체하지 않는다.
+- 단일 사용자·단일 앱 MVP다. DB 선점 경합 테스트가 다중 인스턴스 전체 파이프라인 보장을 뜻하지 않는다.
+- 실제 10분 주기 장시간 운영, OS 강제 종료·실제 네트워크 장애, 최신 외부 서비스의 최종 전달은 미검증이다.
+- 3일 중첩보다 늦은 과거 게시, 1000페이지 초과 대량 백필, 깊은 OFFSET/기업명 부분 검색 성능은 보장하지 않는다.
+- 분류는 한 배치씩 처리하며 미분류에는 F~J/지연 반영 등이 포함된다. E로 임의 변환하지 않는다.
+- cooldown은 재시작하면 초기화된다. SMTP 처리 timeout은 실제 전체 작업보다 충분히 길게 둬야 한다.
+- 이미 진행 중인 SMTP와 설정 비활성화를 원자적으로 묶을 수 없다. UNKNOWN은 공급자 기록 확인 후 운영 판단이 필요하다.
+- 인증/권한/TLS/백업 자동화/배포 체계는 현재 제공하지 않는다. 공개 노출 전에 별도 준비해야 한다.
 
-이번에는 smtpSmokeTest·liveTest를 실행하지 않는다. 기존 실제 Gmail 통과 사실은 사용자 제공 이력이며 재검증하지 않는다.
-개발 검증은 Mock NotificationSender/JavaMailSender와 전달 없이 데이터를 폐기하는 127.0.0.1 테스트 서버만 사용한다.
+향후 후보만 기록하며 이번에 구현하지 않았다.
 
-### DB와 API
+- Phase 5: NotificationSender를 통한 Kakao/Discord 확장, 채널별 결과·중복·불확실성 정책 유지.
+- Phase 6: 인증·React 대시보드·운영 관측성·조회/백필 최적화. AI·주가 분석 등은 별도 범위 결정 필요.
+- 운영/배포 준비: 비밀정보 주입·TLS/접근 통제·DB 백업/복원·기본 비활성화·단일 인스턴스 배치·장시간 관측·승인된 실제 3기업 E2E.
 
-새 마이그레이션·컬럼·제약조건·Entity·REST API는 없다. 기존 V1~V4와 중복 방지 제약을 유지한다.
-상한 정리는 정상 dispatch의 짧은 UPDATE이며 FAILED 이력을 보존한다. 강제 SENT/UNKNOWN 재시도 API는 추가하지 않는다.
-Phase 4A의 수집/재시도 로직은 이번 4B에서 변경하지 않았다.
-
-### 검증
-
-`PhaseFourBIntegrationTests`는 소유한 임시 PostgreSQL 스키마에서 실제 서비스/트랜잭션/제약조건을 사용한다.
-SMTP는 Mock이고 CHECK 오류로 결과 저장 실패를 주입한다. 커밋 응답 유실은 실제 트랜잭션 커밋 직후 예외를 던지는
-위임 Store로 모의한다. 서비스 객체 재생성과 DB 재조회로 재시작 복구 상태를 검증하며 실제 OS 프로세스를 종료하지 않는다.
-
-실행 결과 (2026-10-24):
-
-- Java 21 `build integrationTest` 성공. 기본/단위 124개, PostgreSQL 통합 88개, **총 212개 통과**.
-  실패·오류·건너뜀은 모두 0개다. 기존 Phase 4A 회귀 테스트도 포함했다.
-- 4B 신규 검증은 SMTP 예외 4개, 스케줄러 예외 후 재실행 1개, PostgreSQL 중단/동시 처리/지연 분류/DB 장애 12개다.
-- 일반 테스트 XML에 LiveSmtpSmokeTest가 포함되지 않았음을 확인했다.
-  smtpSmokeTest·liveTest는 실행하지 않았으며 외부 Gmail·OpenDART를 호출하지 않았다.
-- 기존 폐기용 루프백 SMTP 2개 테스트로 UTF-8 한글과 DATA 후 응답 유실을 회귀 검증했다.
-- Flyway V1~V4 성공 상태와 테스트 종료 후 잔여 `dw_test_` 스키마 0개를 확인했다.
-- 기존 마이그레이션 변경 없음, `git diff --check` 통과. Commit·Push·배포·Phase 4C/4D는 수행하지 않았다.
-
-### 남은 제한과 Phase 4C 주의사항
-
-- 실제 Gmail 재발송·수신함 전달·장시간 SMTP 장애·OS 강제 종료/DB 네트워크 단절 실험은 이번 검증에 없다.
-- UNKNOWN은 자동 재시도하지 않는다. 서버 로그/공급자 기록으로 확인 후 운영 판단이 필요하며 강제 재전송 기능은 제공하지 않는다.
-- 처리 timeout은 SMTP 전체 작업보다 충분히 길게 둔다. 오래 실행 중인 SMTP를 취소하거나 선점 lease를 연장하지 않는다.
-- 알림/조건 변경과 이미 진행 중인 SMTP 사이에는 원자적 취소가 불가능하다. 현재 전송 전 재검증과 이후 대기 작업 취소를 유지한다.
-- Phase 4C에서 응답 통계만으로 전달 여부를 단정하지 않고 DB 상태와 불확실성을 함께 표시한다.
-- 수집 재시도로 SENT/UNKNOWN을 초기화하거나 전역/기업/조건의 활성 기준을 과거로 되돌리지 않는다.
-- 기존 도메인 보조 메서드는 실제 전송 워커가 아니다. 자동 전송/재시도는 계속 WorkStore 선점·기한·상한 경로만 사용한다.
-
-## Phase 4C — 테스트·운영 로그·REST API·Swagger
-
-### 분석과 범위
-
-전체 Controller/Service/Repository, 공통 예외 처리, SMTP·OpenDART 클라이언트, 로그/문서 설정과 기존 테스트를 확인했다.
-4A·4B와 3A~3C의 수집·분류·알림 시나리오는 이미 PostgreSQL/Mock 테스트가 있어 재작성하지 않았다.
-페이지 실패·DB 롤백·기업별 기준 복원·한도 억제·알림 활성 기준·선점 경쟁·재시도·UNKNOWN 격리를 그대로 유지했다.
-
-누락된 것은 저장 공시 목록 REST API, 대부분의 Swagger 설명, 누락 파라미터/기본 오류 형식, 작업별 운영 추적 정보였다.
-새 기능은 계획서 MVP에 있는 **저장 공시 목록 조회**뿐이다. 기존 경로/성공 응답 형식/상태와 재시도·DB 트랜잭션 정책은 유지했다.
-새 라이브러리·비즈니스 Entity·Flyway SQL은 추가하지 않았다.
-
-### 공시 목록 API
-
-`GET /api/disclosures` → `{items,page,size,totalElements}`.
-
-| 입력 | 규칙 |
-| --- | --- |
-| companyId | 선택, 양수 기업 DB 식별자. corp_code와 구분 |
-| query | 선택, 기업명 대소문자 무시 부분 검색 또는 종목코드 일치. 주어진 경우 공백 제외 1~200자 |
-| type | 선택, 공식 대문자 A~J. enum 이름/소문자/빈 값 거부 |
-| page | 기본 0, 0 이상 |
-| size | 기본 20, 1~100 |
-
-필터는 AND로 결합한다. query의 `%`, `_`, `!`는 SQL wildcard로 확장하지 않고 글자 그대로 검색한다.
-type 생략 시 NULL 미분류도 포함한다. F~J는 저장된 별도 유형으로 검색하며 E로 바꾸지 않는다.
-없는 기업이나 범위를 벗어난 페이지는 HTTP 200 빈 items를 반환하며 전체 필터 결과 수는 유지한다.
-정렬은 `receiptDate DESC, rceptNo DESC`로 고정했다. 정정공시는 별도 접수번호의 독립 행으로 조회된다.
-관심 등록/모니터링 여부에 관계없이 저장된 공시를 읽으며 OpenDART·SMTP는 호출하지 않는다.
-
-Entry는 공시 id·기업 DTO(id/corpCode/stockCode/name)·rceptNo·reportName·공식 type 또는 null·receiptDate·filerName·remarks·
-initialImport·detectedAt(기존 collected_at)·접수번호 기반 dartUrl이다. 기업 DTO의 name은 현재 기업 디렉터리 이름이다.
-기존 Entity/Repository를 재사용하고 readOnly 트랜잭션과 company EntityGraph로 DTO 매핑 시 추가 기업별 조회를 피한다.
-
-### 요청 검증과 공통 오류
-
-- 기존 Service의 필수 값/식별자/페이지 검증을 유지하고 Swagger에 같은 규칙을 표시했다. validation 의존성을 추가하지 않았다.
-- 필수 query 누락, 타입 변환, 잘못된 JSON은 400 INVALID_INPUT이다. null/빈 DTO로 등록/실제 발송을 우회하지 못하는지 검증했다.
-- 경로 없음 404 ENDPOINT_NOT_FOUND, 잘못된 메서드 405 METHOD_NOT_ALLOWED(Allow 헤더 유지),
-  지원하지 않는 Accept는 406 NOT_ACCEPTABLE, 요청 미디어 타입은 415 UNSUPPORTED_MEDIA_TYPE.
-- 기존 ApiException의 404/409/503 및 OpenDART 502/503/504 매핑과 안전한 upstreamStatus를 유지한다.
-- DB 무결성/잠금의 409는 유지한다. 기타 DataAccessException/TransactionException은 503 PERSISTENCE_UNAVAILABLE,
-  예상하지 못한 예외는 500 INTERNAL_ERROR로 응답하며 원본 메시지를 넣지 않는다.
-- 오류 형식은 `application/problem+json`의 type/title/status/detail/instance + code이며 upstreamStatus는 해당할 때만 있다.
-- `POST /api/collections`의 HTTP 200은 기업별 성공을 뜻하지 않는다. 기존 본문 결과를 계속 확인해야 한다.
-
-### 운영 로그
-
-추가 프레임워크 없이 SLF4J를 사용했다. 건별 디버그 본문이나 전역 요청 URI 로깅은 추가하지 않았다.
-
-- 수집: 실행 UUID runId, 배치 시작/종료·상태·시도 기업 수, 기업별 watchId/corpCode·조회 범위·시작/종료·fetched/inserted/duplicates·durationMs·안전한 error.
-  duplicates는 성공 결과의 fetched-inserted이며 실패/부분 조회를 중복 건수로 추정하지 않는다.
-- 알림: 별도 배치 runId, deliveryId/rceptNo/channel, 선점 커밋 후 DB attemptCount/retryCount, 처리 결과·SMTP 결과·기록 확인 여부·durationMs·안전한 error.
-  Claim에 기존 DB attempt_count를 읽어 로그에 사용한다. 스키마나 외부 REST DTO는 바꾸지 않았다.
-- SMTP 수락과 DB 기록 성공을 구분한다. 결과 CAS 실패/저장 예외 시 로그 status=UNKNOWN, smtpResult는 별도 표시한다.
-  DB에 SENT가 이미 커밋된 응답 유실 상황도 가능하므로 이력을 기준으로 판단한다.
-- INFO는 시작/종료/정상 처리/취소·집계, WARN은 장애·발송 실패·불확실성, ERROR는 예상하지 못한 API 내부 오류에 사용한다.
-- 키·비밀번호·수신/발신 이메일·선점 토큰·원본 예외·인증 URI는 로그 인자로 전달하지 않는다.
-  Hibernate SqlExceptionHelper의 원본 SQL 오류 로깅을 끄고 앱의 안전한 오류 코드와 작업 식별자를 사용한다.
-- 오류 기록이 DB 장애로 불가능해도 기존 체크포인트/PROCESSING 복구 정책을 유지한다. 로그만을 발송 성공의 근거로 삼지 않는다.
-
-### Swagger
-
-모든 실제 Controller에 태그/Operation을 추가했다. OpenApiConfiguration에서 앱 설명, 공통 ApiProblem 스키마,
-실제 오류 경로에 맞는 주요 응답, 공통 page/size 기본값·범위를 정리했다.
-기업 등록은 201, 삭제는 204로 표시하고 요청 record의 필수 값을 문서화했다.
-알림 조건 A~E와 목록 유형 A~J, 수동 수집의 기능 범위, 실제 전송 확인, SENT/UNKNOWN 의미를 구분했다.
-Advice의 모든 예외를 모든 API에 일괄 추가하는 자동 문서는 끄고 적용되는 주요 오류를 명시했다.
-실제 사용하지 않는 API·인증·강제 UNKNOWN 재시도 경로는 추가하지 않았다.
-
-### 신규·변경 테스트
-
-| 테스트 | 보강 내용 |
-| --- | --- |
-| DartWatchApplicationTests | 잘못된 쿼리 14종, 누락/잘못된 body, 404/405/406/415, DB/내부 오류의 민감정보 제외, 전체 실제 라우트↔OpenAPI 일치·성공 코드·필수 DTO·페이지 범위 |
-| OperationalLoggingTests | 동일 수집 runId·신규/중복 수·실패·시간·민감정보 제외, DB 기록 미확인 알림의 UNKNOWN/WARN·시도 횟수·수신자/토큰 제외 |
-| PhaseFourCIntegrationTests | 목록 정렬/페이지/NULL/링크, 기업·유형 AND 필터/F 별도 조회, SQL wildcard 문자 처리, REST 등록→수집→분류→작업→Mock 실패/기한 재시도→이력→중복 방지 |
-| PostgresApplicationTests | 실제 HTTP 서버 테스트도 기존 OwnedPostgresSchema로 격리. 기동 초기화가 운영 수신자 설정/대기 작업을 변경하지 않도록 개선 |
-
-기존 4A/4B 테스트를 회귀 실행한다. DB 테스트는 기존 로컬 PostgreSQL과 소유한 임시 스키마를 사용한다.
-실제 OpenDART·Gmail을 호출하는 liveTest/smtpSmokeTest는 실행하지 않는다.
-
-실행 결과 (2026-10-24):
-
-- Java 21 `build integrationTest` 성공. 기본/단위 **144개**, PostgreSQL 통합 **92개**, 총 **236개 통과**.
-  실패·오류·건너뜀은 모두 0개다. 기존 212개에 신규 검증 24개를 추가했다.
-- 실제 Controller 경로/HTTP 메서드와 OpenAPI 경로가 모두 일치하며, 201/204·필수 DTO·페이지 범위를 검증했다.
-- 로그 상관 ID·건수·시간·민감정보 제외와 SMTP 수락/DB 결과 미확인의 구분을 검증했다.
-- 최초 전체 흐름 테스트에서는 전역 활성화 기준을 초기화하지 않아 적격 작업이 제외되는 점을 발견했다.
-  운영의 기동 초기화와 동일하게 테스트에서 활성 기준을 먼저 기록한 뒤 재검증했다. 비즈니스 활성 정책은 변경하지 않았다.
-- 일반 테스트에 LiveSmtpSmokeTest가 포함되지 않음을 확인했다. 실제 OpenDART/Gmail은 호출하지 않았다.
-- Flyway V1~V4 성공 상태, 마이그레이션 무변경, 테스트 종료 후 남은 `dw_test_` 스키마 0개를 확인했다.
-- `git diff --check` 통과. 신규 의존성·인프라·마이그레이션 없음. Phase 4D·Commit·Push·배포는 수행하지 않았다.
-
-### 남은 제한과 Phase 4D 최종 검증 사항
-
-- 실제 외부 API·수신함 전달·장시간 자동 운영·OS 강제 종료는 이번 검증에 없다. 필요할 때 별도 승인·환경에서 확인한다.
-- Swagger JSON·UI 응답·라우트 일치는 자동 검증하지만 사람이 브라우저에서 모든 Try it out을 실행하지 않았다.
-- 목록의 깊은 OFFSET 페이지/기업명 부분 검색 성능은 대량 데이터로 검증하지 않았다. MVP 규모를 넘으면 인덱스·커서 페이지를 검토한다.
-- 4D에서는 기본 세 활성화 플래그 false, 환경변수 예제, V1~V4 체크섬, 빈 DB와 기존 DB 기동·문서 재현성을 최종 확인해야 한다.
-- 운영 확인 중 수동 수집은 메일을 즉시 보내지 않아도 이후 활성 자동 파이프라인의 대상이 될 수 있다. 실제 발송 검증에는 명시적 승인이 필요하다.
-- UNKNOWN은 자동 재전송하지 않는다. 새 목록/문서/로그를 이용해 활성 기준·과거 제외·중복 방지를 우회하지 않는다.
+Phase 4D에서 개발을 종료했다. Phase 5·6, Commit·Push·배포는 수행하지 않았다.
