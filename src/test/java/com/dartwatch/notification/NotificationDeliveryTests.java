@@ -66,7 +66,7 @@ class NotificationDeliveryTests {
         var delivery = delivery(false);
         delivery.beginAttempt();
         assertThatIllegalArgumentException().isThrownBy(() -> delivery.markFailed(" "));
-        assertThat(delivery.getStatus()).isEqualTo(NotificationStatus.SENDING);
+        assertThat(delivery.getStatus()).isEqualTo(NotificationStatus.PROCESSING);
         delivery.markFailed("x".repeat(2100));
         assertThat(delivery.getLastError()).hasSize(2000);
     }

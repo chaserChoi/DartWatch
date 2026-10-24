@@ -11,6 +11,8 @@ import com.dartwatch.company.CompanyRepository;
 import com.dartwatch.disclosure.DisclosureRepository;
 import com.dartwatch.watchlist.WatchedCompanyRepository;
 import com.dartwatch.notification.NotificationRuleRepository;
+import com.dartwatch.notification.NotificationWorkStore;
+import com.dartwatch.notification.NotificationDeliveryRepository;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -31,6 +33,8 @@ class DartWatchApplicationTests {
     @MockitoBean DisclosureRepository disclosures;
     @MockitoBean CompanyDirectoryStore directoryStore;
     @MockitoBean NotificationRuleRepository notificationRules;
+    @MockitoBean NotificationWorkStore notificationWorkStore;
+    @MockitoBean NotificationDeliveryRepository notificationDeliveries;
 
     @Autowired
     private MockMvc mockMvc;

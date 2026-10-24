@@ -3,11 +3,12 @@
 OpenDART 기업 공시를 수집하고 관심 조건에 맞는 공시를 이메일로 알리는 단일 사용자 Backend 프로젝트입니다.
 요구사항의 기준은 [프로젝트 계획서](docs/PROJECT_PLAN.md)입니다.
 
-현재 **Phase 3A: 공시 유형 분류·알림 조건 관리·후보 필터링**까지 구현했습니다.
+현재 **Phase 3B: 이메일 전송·발송 이력·안전한 재시도**까지 구현했습니다.
 기존 5개 Entity를 재사용하며 ERD는 [도메인 모델](docs/DOMAIN_MODEL.md),
 API·수집 기준·설정·검증 방법은 [Phase 2 가이드](docs/PHASE_2.md)를 참고하세요.
 분류·조건 API와 활성 기준은 [Phase 3A 가이드](docs/PHASE_3.md)에 정리했습니다.
-이메일 발송(3B), 수집→분류→발송 자동 통합(3C), 인증·프론트엔드는 구현하지 않았습니다.
+이메일 전송·상태·SMTP 설정은 [Phase 3B 가이드](docs/PHASE_3B.md)에 정리했습니다.
+수집→분류→발송 자동 통합(3C), 인증·프론트엔드는 구현하지 않았습니다.
 
 ## 환경과 버전
 
@@ -20,6 +21,7 @@ API·수집 기준·설정·검증 방법은 [Phase 2 가이드](docs/PHASE_2.md
 | PostgreSQL | 17.11, 지원 중인 17 계열의 공식 안정 이미지로 고정 |
 | Spring Data JPA / JDBC / JUnit / Mockito | 3.5.13 / 42.7.11 / 5.12.2 / 5.17.0, Boot 3.5.16 BOM으로 관리 |
 | Flyway core / PostgreSQL 모듈 | 11.7.2, Boot BOM으로 관리 |
+| Spring Mail Starter | 3.5.16, 기존 Boot BOM으로 관리 |
 
 버전 확인 기준: 2026-10-24. Boot 4 대신 JUnit 5 요구사항과 맞는 Boot 3.5를 선택했습니다.
 Spring dependency-management 플러그인 대신 Gradle의 기본 BOM 지원을 사용합니다.
@@ -129,6 +131,21 @@ V3는 공시 분류 확인 시각과 기업/조건별 활성 기준을 추가합
 
 이 API는 발송 없는 미리보기입니다. 알림 작업·SMTP 호출·발송 이력은 생성하지 않습니다.
 상세 조회 전략·활성화 시각 정책·분류 설정은 [Phase 3A 가이드](docs/PHASE_3.md)를 참고하세요.
+
+## Phase 3B 사용
+
+기본 `NOTIFICATION_ENABLED=false`이며 앱 기동·수동 수집·분류·후보 조회로 이메일이 전송되지 않습니다.
+실제 SMTP 설정과 전송 활성화는 사용자 승인 후 진행하세요. 이번 검증은 Mock과 폐기용 루프백 SMTP만 사용했습니다.
+
+- `POST /api/watchlist/{id}/notification-jobs`: 현재 설정된 수신자의 적격 후보를 PENDING으로 저장합니다. 전송하지 않습니다.
+- `POST /api/notifications/dispatch`: `{"confirmSend":true}`와 전역 활성화가 모두 필요합니다.
+  이 API는 실제 이메일 전송을 일으킬 수 있으며 PENDING·재시도 가능한 FAILED 작업만 제한된 배치로 처리합니다.
+- `GET /api/notifications?status=FAILED&page=0&size=20`: 상태별 페이지 이력, 시도 횟수·다음 시도 시각·오류 코드를 확인합니다.
+
+최초 전역 활성화와 재활성화 시각을 DB에 기록하여 그 이전에 탐지된 공시를 일괄 발송하지 않습니다.
+재시도 기본값은 최초 1회 + 최대 3회, 간격 10분입니다. UNKNOWN·SENT·영구 실패는 자동 재시도하지 않습니다.
+3B에서는 전송 스케줄러를 추가하지 않았습니다. 재시도 간격이 지난 작업은 다음 명시적 dispatch에서 처리하며 자동 통합은 3C에 남겼습니다.
+V4는 수신자별 UNIQUE·DB 선점 토큰·재시도 시각·전역 활성 기준을 추가하고 기존 V1~V3와 이력을 보존합니다.
 
 ## Phase 2 사용 순서
 

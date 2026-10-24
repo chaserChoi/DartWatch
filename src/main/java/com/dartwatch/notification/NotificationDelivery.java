@@ -3,11 +3,12 @@ package com.dartwatch.notification;
 import com.dartwatch.disclosure.Disclosure;
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.util.Assert;
 
 @Entity
 @Table(name = "notification_delivery", uniqueConstraints = @UniqueConstraint(
-        name = "uk_notification_delivery_target", columnNames = {"disclosure_id", "channel"}))
+        name = "uk_notification_delivery_target", columnNames = {"disclosure_id", "channel", "recipient"}))
 public class NotificationDelivery {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -20,6 +21,9 @@ public class NotificationDelivery {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32, updatable = false)
     private NotificationChannel channel;
+
+    @Column(length = 320, updatable = false)
+    private String recipient;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
@@ -35,6 +39,13 @@ public class NotificationDelivery {
 
     private Instant sentAt;
 
+    private Instant nextAttemptAt;
+
+    @Column(nullable = false)
+    private boolean retryable;
+
+    private UUID claimToken;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -46,34 +57,56 @@ public class NotificationDelivery {
     }
 
     public NotificationDelivery(Disclosure disclosure, NotificationChannel channel) {
+        this(disclosure, channel, null);
+    }
+
+    public NotificationDelivery(Disclosure disclosure, NotificationChannel channel, String recipient) {
         Assert.notNull(disclosure, "disclosure is required");
         Assert.isTrue(!disclosure.isInitialImport(), "initial imports must not create notifications");
         Assert.notNull(channel, "channel is required");
         this.disclosure = disclosure;
         this.channel = channel;
+        this.recipient = recipient == null ? null : EmailAddress.normalize(recipient);
+        this.nextAttemptAt = createdAt;
     }
 
     public void beginAttempt() {
         Assert.state(status == NotificationStatus.PENDING || status == NotificationStatus.FAILED,
                 "only pending or failed deliveries can be attempted");
-        status = NotificationStatus.SENDING;
+        status = NotificationStatus.PROCESSING;
         attemptCount++;
         lastAttemptAt = Instant.now();
         lastError = null;
+        nextAttemptAt = null;
+        retryable = false;
+        claimToken = UUID.randomUUID();
     }
 
     public void markSent() {
-        Assert.state(status == NotificationStatus.SENDING, "delivery is not sending");
+        Assert.state(status == NotificationStatus.PROCESSING, "delivery is not processing");
         status = NotificationStatus.SENT;
         sentAt = Instant.now();
+        claimToken = null;
     }
 
     public void markFailed(String error) {
-        Assert.state(status == NotificationStatus.SENDING, "delivery is not sending");
+        Assert.state(status == NotificationStatus.PROCESSING, "delivery is not processing");
         Assert.hasText(error, "error is required");
         status = NotificationStatus.FAILED;
         String normalizedError = error.strip();
         lastError = normalizedError.substring(0, Math.min(normalizedError.length(), 2000));
+        retryable = true;
+        nextAttemptAt = Instant.now();
+        claimToken = null;
+    }
+
+    public void markUnknown() {
+        Assert.state(status == NotificationStatus.PROCESSING, "delivery is not processing");
+        status = NotificationStatus.UNKNOWN;
+        lastError = "TRANSPORT_UNCERTAIN";
+        retryable = false;
+        nextAttemptAt = null;
+        claimToken = null;
     }
 
     public Long getId() { return id; }
@@ -86,4 +119,7 @@ public class NotificationDelivery {
     public Instant getSentAt() { return sentAt; }
     public Instant getCreatedAt() { return createdAt; }
     public long getVersion() { return version; }
+    public String getRecipient() { return recipient; }
+    public Instant getNextAttemptAt() { return nextAttemptAt; }
+    public boolean isRetryable() { return retryable; }
 }

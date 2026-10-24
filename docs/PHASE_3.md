@@ -1,9 +1,10 @@
-# Phase 3A — 공시 분류·알림 조건·후보 필터링
+# Phase 3 — 3A 분류·필터와 3B 이메일
 
-이번 작업은 Phase 3A까지만 구현한다.
+3A와 3B를 구현했다. **아래는 3A 구현 시점의 설계 기록**이며,
+메일·이력·활성화 기준의 3B 확장은 [Phase 3B](PHASE_3B.md)를 기준으로 한다. 3C는 진행하지 않았다.
 
 - **3A 완료 범위:** 공식 A~E 분류, 조건 등록·수정·조회·비활성화, 기업별 알림 사용 여부, 발송 없는 후보 조회.
-- **3B 후속 범위:** Mail Starter, NotificationSender, SMTP, 수신자·발송 상태 확장, 전송·재시도·중복 처리.
+- **3B 완료 범위:** Mail Starter, NotificationSender, SMTP, 수신자·발송 상태 확장, 전송·재시도·중복 처리. 상세 내용은 별도 가이드에 기록한다.
 - **3C 후속 범위:** 수집→분류→알림 작업 생성→발송의 자동 파이프라인 통합과 관련 검증.
 
 기존 `DisclosureCollectionService`, 수집 스케줄러, `POST /api/collections`는 유지한다.

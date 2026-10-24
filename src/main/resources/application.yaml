@@ -13,6 +13,22 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: validate
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    test-connection: false
+    properties:
+      "[mail.smtp.auth]": ${MAIL_AUTH:true}
+      "[mail.smtp.starttls.enable]": ${MAIL_STARTTLS_ENABLED:true}
+      "[mail.smtp.starttls.required]": ${MAIL_STARTTLS_REQUIRED:true}
+      "[mail.smtp.connectiontimeout]": ${MAIL_CONNECT_TIMEOUT_MS:5000}
+      "[mail.smtp.timeout]": ${MAIL_READ_TIMEOUT_MS:5000}
+      "[mail.smtp.writetimeout]": ${MAIL_WRITE_TIMEOUT_MS:5000}
+      "[mail.smtp.sendpartial]": false
+      "[mail.debug]": false
 
 server:
   port: ${SERVER_PORT:8080}
@@ -22,6 +38,14 @@ springdoc:
     path: /swagger-ui.html
 
 dartwatch:
+  notification:
+    enabled: ${NOTIFICATION_ENABLED:false}
+    email-to: ${NOTIFICATION_EMAIL_TO:}
+    mail-from: ${MAIL_FROM:}
+    max-retries: ${NOTIFICATION_MAX_RETRIES:3}
+    retry-interval: ${NOTIFICATION_RETRY_INTERVAL:PT10M}
+    processing-timeout: ${NOTIFICATION_PROCESSING_TIMEOUT:PT10M}
+    batch-size: ${NOTIFICATION_BATCH_SIZE:20}
   classification:
     batch-size: ${CLASSIFICATION_BATCH_SIZE:100}
     window-days: ${CLASSIFICATION_WINDOW_DAYS:30}
@@ -43,3 +67,5 @@ dartwatch:
 logging:
   level:
     org.springframework.web.client: OFF
+    org.springframework.mail: OFF
+    org.eclipse.angus.mail: OFF
