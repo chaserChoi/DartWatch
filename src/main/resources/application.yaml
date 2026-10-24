@@ -31,6 +31,17 @@ spring:
       "[mail.debug]": false
 
 server:
+  address: ${SERVER_ADDRESS:0.0.0.0}
+  forward-headers-strategy: none
+  tomcat:
+    accesslog:
+      enabled: false
+  servlet:
+    session:
+      tracking-modes: cookie
+      cookie:
+        http-only: true
+        same-site: lax
   port: ${SERVER_PORT:8080}
 
 springdoc:
@@ -39,6 +50,17 @@ springdoc:
     path: /swagger-ui.html
 
 dartwatch:
+  kakao:
+    enabled: ${KAKAO_ENABLED:false}
+    local-connect-enabled: ${KAKAO_LOCAL_CONNECT_ENABLED:false}
+    rest-api-key: ${KAKAO_REST_API_KEY:}
+    client-secret: ${KAKAO_CLIENT_SECRET:}
+    redirect-uri: ${KAKAO_REDIRECT_URI:http://localhost:8080/api/integrations/kakao/callback}
+    encryption-key: ${KAKAO_TOKEN_ENCRYPTION_KEY:}
+    registered-web-origin: ${KAKAO_REGISTERED_WEB_ORIGIN:}
+    message-web-url: ${KAKAO_MESSAGE_WEB_URL:}
+    connect-timeout: ${KAKAO_CONNECT_TIMEOUT:PT5S}
+    read-timeout: ${KAKAO_READ_TIMEOUT:PT10S}
   discord:
     enabled: ${DISCORD_ENABLED:false}
     webhook-url: ${DISCORD_WEBHOOK_URL:}
@@ -80,6 +102,7 @@ dartwatch:
 # OpenDART authenticates in the query string; never enable request URI logging.
 logging:
   level:
+    org.springframework.web: WARN
     org.springframework.web.client: OFF
     org.springframework.mail: OFF
     org.eclipse.angus.mail: OFF

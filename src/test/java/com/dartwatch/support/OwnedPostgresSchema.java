@@ -11,6 +11,7 @@ public final class OwnedPostgresSchema {
         registry.add("spring.flyway.default-schema", () -> name);
         registry.add("spring.flyway.schemas", () -> name);
         registry.add("spring.datasource.hikari.schema", () -> name);
+        registry.add("spring.datasource.hikari.maximum-pool-size", () -> "3");
         registry.add("spring.jpa.properties.hibernate.default_schema", () -> name);
         registry.add("dartwatch.collection.enabled", () -> "false");
     }

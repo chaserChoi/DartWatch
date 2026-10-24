@@ -133,7 +133,7 @@ class PhaseFourDIntegrationTests {
                 .andExpect(jsonPath("$.totalElements").value(3));
         verify(sender, times(3)).send(any());
         verify(client, times(1)).downloadCompanies();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("5");
         assertThatCode(flyway::validate).doesNotThrowAnyException();
     }
 

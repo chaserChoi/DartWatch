@@ -41,6 +41,8 @@ tasks.withType(Test).configureEach {
     systemProperty 'dartwatch.notification.enabled', 'false'
     systemProperty 'dartwatch.notification.scheduler.enabled', 'false'
     systemProperty 'dartwatch.discord.enabled', 'false'
+    systemProperty 'dartwatch.kakao.enabled', 'false'
+    systemProperty 'dartwatch.kakao.local-connect-enabled', 'false'
 }
 
 tasks.named('test') {

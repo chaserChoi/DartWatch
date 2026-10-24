@@ -12,6 +12,11 @@ OpenDART 공시를 수집하고 관심 기업·공시 유형 조건에 맞는 �
 연결/응답 timeout은 `DISCORD_CONNECT_TIMEOUT=PT5S`, `DISCORD_READ_TIMEOUT=PT10S`로 조정합니다.
 Discord를 켜도 기존 수집/이메일 스케줄러는 Discord를 호출하지 않습니다. 다중 채널 작업 배분은 Phase 5C 후속 작업입니다.
 
+**Phase 5B Kakao OAuth·나에게 보내기 모듈**도 독립적으로 구현했습니다. 기본 `KAKAO_ENABLED=false`,
+`KAKAO_LOCAL_CONNECT_ENABLED=false`이며 자동 수집·발송 파이프라인에는 연결하지 않았습니다.
+본인 계정 연결, AES-256-GCM 토큰 저장·갱신, Mock 검증과 로컬 수동 확인 절차는 [PHASE_5의 5B 절](docs/PHASE_5.md#phase-5b--kakao-oauth와-나에게-보내기)에 있습니다.
+등록 웹 도메인이 미확인 상태여서 링크 설정은 비어 있으며, 설정 전에는 메시지를 차단합니다. 실제 로그인·카카오톡 발송은 검증하지 않았습니다.
+
 ## 핵심 기능과 기술 스택
 
 - 기업 고유번호 ZIP/XML 동기화, 기업명·종목코드 검색, 관심 기업 관리.
@@ -24,12 +29,12 @@ Discord를 켜도 기존 수집/이메일 스케줄러는 Discord를 호출하�
 | --- | --- |
 | 언어/빌드 | Java 21, Gradle 8.14.3 Wrapper, Groovy DSL |
 | 서버 | Spring Boot 3.5.16, RestClient, Spring Scheduler |
-| 영속성 | Spring Data JPA, PostgreSQL 17.11, Flyway V1~V4, Hibernate validate |
+| 영속성 | Spring Data JPA, PostgreSQL 17.11, Flyway V1~V5, Hibernate validate |
 | 이메일/문서 | Spring Mail(JavaMailSender), Springdoc OpenAPI 2.9.1 |
 | 테스트 | JUnit 5·Mockito(Boot BOM), PostgreSQL·Mock HTTP·폐기용 로컬 SMTP |
 | 개발 인프라 | Docker Compose v2. Redis·Kafka·외부 큐 없음 |
 
-Boot BOM으로 의존성 버전을 관리합니다. 인증·프론트엔드·다중 사용자·키워드 필터는 현재 범위에 없습니다.
+Boot BOM으로 의존성 버전을 관리합니다. 서비스 사용자 인증·프론트엔드·다중 사용자·키워드 필터는 현재 범위에 없습니다.
 
 ## 아키텍처와 디렉터리
 
@@ -60,8 +65,9 @@ dartwatch/
 │   ├── collection/              # 체크포인트·수집·자동 파이프라인
 │   ├── disclosure/              # 저장 목록·분류
 │   ├── notification/            # 조건·전송·이력·재시도
+│   ├── discord/, kakao/         # 독립 발송 모듈·로컬 OAuth·암호화 토큰
 │   └── scheduling/, health/
-├── src/main/resources/application.yaml, db/migration/V1~V4
+├── src/main/resources/application.yaml, db/migration/V1~V5
 └── src/test/java/com/dartwatch/  # 단위·통합·로그·외부 opt-in 테스트
 ```
 
@@ -89,6 +95,7 @@ Compose는 PostgreSQL만 실행하고 포트는 127.0.0.1:5432에 바인딩합�
 포트 충돌은 DB_PORT로 조정합니다. 종료는 `docker compose down`이며 데이터 삭제 옵션은 사용하지 않습니다.
 기존 볼륨의 DB 계정/비밀번호는 .env 수정만으로 바뀌지 않습니다. 기존 DB 정보를 확인하거나 별도 개발 DB를 사용하세요.
 기동 시 Flyway가 마이그레이션하고 JPA가 validate합니다. 기존 V1~V4 SQL은 수정하지 않습니다.
+V5는 본인 카카오 연결 1건을 암호화해 저장하는 별도 테이블이며 기존 공시·이메일 데이터는 변경하지 않습니다.
 
 ```powershell
 .\gradlew.bat build
@@ -258,7 +265,8 @@ dispatch는 발송을 일으킬 수 있으므로 상태 확인을 위해 호출�
 - A~E에서 찾지 못한 공시는 미분류입니다. F~J 추가 분류 호출은 하지 않습니다. 분류는 기본 100개/30일 배치입니다.
 - API cooldown은 메모리 상태여서 재시작 시 초기화됩니다. 반복 재시작으로 제한을 우회하지 않습니다.
 - 실제 10분 장시간 운영·OS 강제 종료·다중 인스턴스·최종 메일 전달은 NOT VERIFIED이며 exactly-once를 보장하지 않습니다.
-- Phase 5 후보: NotificationSender 기반 Kakao/Discord 확장. Phase 6 후보: 인증·대시보드·관측성·대량 조회 개선.
+- Phase 5A/5B: Discord/Kakao 독립 모듈. Phase 5C 후보: 채널별 조건·작업·이력과 안전한 전송 배분.
+  Phase 6 후보: 인증·대시보드·관측성·대량 조회 개선.
 - 운영/배포 전 비밀정보 관리·TLS/접근 통제·DB 백업/복원·모니터링·승인된 외부 E2E를 별도 준비합니다.
 
-현재 Phase 5A까지 구현했습니다. Phase 5B·5C·6, Commit·Push·배포는 수행하지 않았습니다.
+현재 Phase 5B까지 구현했습니다. Phase 5C·6, 실제 카카오 로그인·메시지 발송, Commit·Push·배포는 수행하지 않았습니다.
