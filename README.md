@@ -3,9 +3,10 @@
 OpenDART 기업 공시를 수집하고 관심 조건에 맞는 공시를 이메일로 알리는 단일 사용자 Backend 프로젝트입니다.
 요구사항의 기준은 [프로젝트 계획서](docs/PROJECT_PLAN.md)입니다.
 
-현재 구현 범위는 **Phase 1A: 초기 환경 구성 + Phase 1B: 도메인·영속성 계층**입니다.
-5개 Entity와 Repository, 제약조건, 알림 상태 모델을 구현했습니다. ERD와 상세 설계는 [도메인 모델](docs/DOMAIN_MODEL.md)을 참고하세요.
-공시 수집, 외부 API, 스케줄러, 이메일, 인증 및 프론트엔드는 구현하지 않았습니다.
+현재 **Phase 2: OpenDART 연동·관심 기업 관리·공시 자동 수집**까지 구현했습니다.
+기존 5개 Entity를 재사용하며 ERD는 [도메인 모델](docs/DOMAIN_MODEL.md),
+API·수집 기준·설정·검증 방법은 [Phase 2 가이드](docs/PHASE_2.md)를 참고하세요.
+이메일 발송·유형별 알림 처리·인증·프론트엔드는 구현하지 않았습니다.
 
 ## 환경과 버전
 
@@ -47,17 +48,24 @@ dartwatch/
     │   ├── java/com/dartwatch/
     │   │   ├── DartWatchApplication.java
     │   │   ├── health/HealthController.java
+    │   │   ├── api/              # 안전한 공통 오류 응답
+    │   │   ├── opendart/         # RestClient, ZIP/XML, 외부 응답·오류
+    │   │   ├── collection/       # 수집·기준일 저장·스케줄러
     │   │   ├── company/          # 기업·코드 매핑, Repository
     │   │   ├── watchlist/        # 관심 기업, Repository
     │   │   ├── disclosure/      # 공시·유형, Repository
     │   │   └── notification/    # 조건·발송 이력·상태·채널, Repository
     │   └── resources/
     │       ├── application.yaml
-    │       └── db/migration/V1__create_domain_tables.sql
+    │       └── db/migration/    # V1 도메인, V2 수집 상태·메타데이터
     └── test/java/com/dartwatch/
         ├── DartWatchApplicationTests.java
         ├── PostgresApplicationTests.java
         ├── DomainPersistenceTests.java
+        ├── PhaseTwoIntegrationTests.java
+        ├── OpenDartLiveTests.java
+        ├── collection/         # 수집·스케줄러 테스트
+        ├── opendart/           # ZIP/XML·Mock HTTP 테스트
         ├── company/CompanyTests.java
         └── notification/NotificationDeliveryTests.java
 ```
@@ -103,8 +111,23 @@ DB 초기화 변수는 빈 데이터 볼륨에서만 적용되므로 기존 볼�
 
 Health는 API 서버의 응답 여부만 확인합니다. DB 상태를 나타내는 readiness API는 아닙니다.
 JPA는 `ddl-auto=validate`, `open-in-view=false`입니다.
-Flyway가 최초 실행 시 5개 도메인 테이블·제약조건을 생성하고 이후 JPA가 매핑을 검증합니다.
+Flyway가 5개 도메인 테이블·제약조건 및 기업 동기화 완료 메타데이터 테이블을 생성하고 이후 JPA가 매핑을 검증합니다.
 스키마 변경은 버전 SQL로 관리합니다.
+
+## Phase 2 사용 순서
+
+1. `.env` 또는 OS 환경변수에 `OPENDART_API_KEY`를 설정합니다. 예제 키 값은 비워 두었습니다.
+2. DB와 앱을 실행한 뒤 기업 목록을 한 번 동기화합니다.
+   `Invoke-RestMethod -Method Post http://localhost:8080/api/companies/sync`
+3. `GET /api/companies?query=005930` 또는 URL 인코딩한 기업명으로 검색합니다.
+4. 검색 결과의 DB `id`로 `POST /api/watchlist`에 `{"companyId":1}` 형식의 JSON을 보냅니다.
+5. `POST /api/collections`로 활성 관심 기업을 즉시 수집합니다. 응답의 전체·기업별 상태를 확인하세요.
+6. `.env`의 `COLLECTION_ENABLED=true`로 설정하고 앱을 재시작하면 기본 10분 fixed delay로 자동 수집합니다.
+
+기업 검색은 OpenDART를 호출하지 않습니다. 기업 동기화 완료 후 같은 동기화 요청도 다운로드를 생략합니다.
+최신 기업 정보를 다시 내려받을 때만 `POST /api/companies/sync?refresh=true`를 사용합니다.
+자동 수집은 기본 비활성화이며 API Key 없이도 Health·Swagger·DB 조회는 사용할 수 있습니다.
+수집 조회 범위와 API 목록은 [Phase 2 가이드](docs/PHASE_2.md)에 정리했습니다.
 
 ## 빌드와 테스트
 
@@ -116,16 +139,21 @@ Flyway가 최초 실행 시 5개 도메인 테이블·제약조건을 생성하�
 docker compose up -d --wait postgres
 .\gradlew.bat integrationTest
 
+# 명시적 실제 OpenDART 검증: 키·DB·네트워크 필요, ZIP 1회와 목록 최대 1회 호출
+.\gradlew.bat liveTest
+
 # 빌드한 JAR 실행 (프로젝트 루트에서 실행)
 java -jar build/libs/dartwatch-0.0.1-SNAPSHOT.jar
 ```
 
-기본 `test`는 DB/JPA 자동 설정을 제외한 4개 smoke test와 기업 코드·알림 상태의 도메인 단위 테스트입니다.
+기본 `test`는 4개 smoke test, 도메인·ZIP/XML·Mock HTTP·수집·스케줄러 단위 테스트입니다.
 기본 빌드 성공만으로 DB 연결이 검증되지는 않습니다.
 `integrationTest`는 실제 PostgreSQL에서 `SELECT 1`, Health/OpenAPI/Swagger HTTP 응답과
 5개 Entity의 매핑·Repository 조회·중복/FK/CHECK 제약조건·관심 삭제 시 이력 보존·낙관적 잠금 충돌을 검증합니다.
+Phase 2 통합 테스트는 외부 API를 Mock하고 기업 동기화·REST 관리·초기/증분 수집·실패 후 기준일 보존을 검증합니다.
 도메인 영속성 테스트는 임시 스키마를 만들어 사용하고 종료 시 제거합니다.
 DB 또는 비밀번호가 준비되지 않으면 실패하며, 기본 `build`에는 포함하지 않았습니다.
 H2나 Testcontainers 의존성 및 임의의 테스트 비밀번호를 추가하지 않았습니다.
+모든 Gradle 테스트 작업에서는 자동 수집을 강제로 끕니다. 실제 외부 호출은 기본 테스트에서 제외된 `liveTest`에서만 수행합니다.
 
 테스트 보고서는 `build/reports/tests/test/index.html` 및 `build/reports/tests/integrationTest/index.html`에 생성됩니다.

@@ -5,6 +5,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import com.dartwatch.company.CompanyDirectoryStore;
+import com.dartwatch.company.CompanyRepository;
+import com.dartwatch.disclosure.DisclosureRepository;
+import com.dartwatch.watchlist.WatchedCompanyRepository;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -19,6 +24,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class DartWatchApplicationTests {
+
+    @MockitoBean CompanyRepository companies;
+    @MockitoBean WatchedCompanyRepository watchedCompanies;
+    @MockitoBean DisclosureRepository disclosures;
+    @MockitoBean CompanyDirectoryStore directoryStore;
 
     @Autowired
     private MockMvc mockMvc;

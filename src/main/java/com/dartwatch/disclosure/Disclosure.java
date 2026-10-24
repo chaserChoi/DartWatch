@@ -37,6 +37,15 @@ public class Disclosure {
     @Column(nullable = false, updatable = false)
     private Instant collectedAt = Instant.now();
 
+    @Column(length = 200)
+    private String companyName;
+
+    @Column(length = 255)
+    private String filerName;
+
+    @Column(length = 1000)
+    private String remarks;
+
     protected Disclosure() {
     }
 
@@ -63,4 +72,7 @@ public class Disclosure {
     public DisclosureType getDisclosureType() { return disclosureType; }
     public boolean isInitialImport() { return initialImport; }
     public Instant getCollectedAt() { return collectedAt; }
+    public String getCompanyName() { return companyName; }
+    public String getFilerName() { return filerName; }
+    public String getRemarks() { return remarks; }
 }

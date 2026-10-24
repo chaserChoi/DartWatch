@@ -3,6 +3,7 @@ package com.dartwatch.watchlist;
 import com.dartwatch.company.Company;
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.time.LocalDate;
 import org.springframework.util.Assert;
 
 @Entity
@@ -23,6 +24,20 @@ public class WatchedCompany {
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    private LocalDate initialSyncThrough;
+    private LocalDate lastSuccessfulCollectionDate;
+    private Instant lastCollectionAttemptAt;
+    private Instant lastCollectionSucceededAt;
+
+    @Column(length = 80)
+    private String lastCollectionError;
+
+    @Column(nullable = false)
+    private int lastFetchedCount;
+
+    @Column(nullable = false)
+    private int lastInsertedCount;
+
     protected WatchedCompany() {
     }
 
@@ -39,4 +54,30 @@ public class WatchedCompany {
     public Company getCompany() { return company; }
     public boolean isMonitoringEnabled() { return monitoringEnabled; }
     public Instant getCreatedAt() { return createdAt; }
+    public LocalDate getInitialSyncThrough() { return initialSyncThrough; }
+    public LocalDate getLastSuccessfulCollectionDate() { return lastSuccessfulCollectionDate; }
+    public Instant getLastCollectionAttemptAt() { return lastCollectionAttemptAt; }
+    public Instant getLastCollectionSucceededAt() { return lastCollectionSucceededAt; }
+    public String getLastCollectionError() { return lastCollectionError; }
+    public int getLastFetchedCount() { return lastFetchedCount; }
+    public int getLastInsertedCount() { return lastInsertedCount; }
+
+    public void beginCollection(LocalDate today, Instant now) {
+        if (initialSyncThrough == null) initialSyncThrough = today;
+        lastCollectionAttemptAt = now;
+        lastCollectionError = null;
+    }
+
+    public void completeCollection(LocalDate through, Instant now, int fetched, int inserted) {
+        lastSuccessfulCollectionDate = through;
+        lastCollectionSucceededAt = now;
+        lastCollectionError = null;
+        lastFetchedCount = fetched;
+        lastInsertedCount = inserted;
+    }
+
+    public void failCollection(String safeErrorCode) {
+        Assert.isTrue(safeErrorCode != null && safeErrorCode.matches("[A-Z_]{1,80}"), "Invalid collection error code");
+        lastCollectionError = safeErrorCode;
+    }
 }

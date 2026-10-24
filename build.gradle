@@ -35,9 +35,13 @@ tasks.withType(JavaCompile).configureEach {
     options.compilerArgs.add('-parameters')
 }
 
+tasks.withType(Test).configureEach {
+    systemProperty 'dartwatch.collection.enabled', 'false'
+}
+
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'postgres'
+        excludeTags 'postgres', 'live'
     }
 }
 
@@ -48,6 +52,16 @@ tasks.register('integrationTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
         includeTags 'postgres'
+        excludeTags 'live'
     }
     shouldRunAfter tasks.named('test')
+}
+
+tasks.register('liveTest', Test) {
+    description = 'Explicit opt-in: minimal real OpenDART calls; requires a configured API key and PostgreSQL.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'live' }
+    outputs.upToDateWhen { false }
 }

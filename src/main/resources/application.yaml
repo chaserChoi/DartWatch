@@ -20,3 +20,22 @@ server:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+dartwatch:
+  opendart:
+    api-key: ${OPENDART_API_KEY:}
+    connect-timeout: ${OPENDART_CONNECT_TIMEOUT:5s}
+    read-timeout: ${OPENDART_READ_TIMEOUT:30s}
+    page-size: ${OPENDART_PAGE_SIZE:100}
+    max-pages: ${OPENDART_MAX_PAGES:1000}
+  collection:
+    enabled: ${COLLECTION_ENABLED:false}
+    interval: ${COLLECTION_INTERVAL:PT10M}
+    initial-delay: ${COLLECTION_INITIAL_DELAY:PT30S}
+    initial-days: ${COLLECTION_INITIAL_DAYS:30}
+    overlap-days: ${COLLECTION_OVERLAP_DAYS:3}
+
+# OpenDART authenticates in the query string; never enable request URI logging.
+logging:
+  level:
+    org.springframework.web.client: OFF
