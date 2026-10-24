@@ -22,6 +22,10 @@ springdoc:
     path: /swagger-ui.html
 
 dartwatch:
+  classification:
+    batch-size: ${CLASSIFICATION_BATCH_SIZE:100}
+    window-days: ${CLASSIFICATION_WINDOW_DAYS:30}
+    retry-interval: ${CLASSIFICATION_RETRY_INTERVAL:PT24H}
   opendart:
     api-key: ${OPENDART_API_KEY:}
     connect-timeout: ${OPENDART_CONNECT_TIMEOUT:5s}

@@ -21,6 +21,11 @@ public class WatchedCompany {
     @Column(nullable = false)
     private boolean monitoringEnabled = true;
 
+    @Column(nullable = false)
+    private boolean notificationsEnabled;
+
+    private Instant notificationsEnabledSince;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -47,8 +52,24 @@ public class WatchedCompany {
     }
 
     public void setMonitoringEnabled(boolean monitoringEnabled) {
+        setMonitoringEnabled(monitoringEnabled, Instant.now());
+    }
+
+    public void setMonitoringEnabled(boolean monitoringEnabled, Instant now) {
+        if (monitoringEnabled && !this.monitoringEnabled && notificationsEnabled) {
+            notificationsEnabledSince = now;
+        }
         this.monitoringEnabled = monitoringEnabled;
     }
+
+    public void setNotificationsEnabled(boolean enabled, Instant now) {
+        Assert.notNull(now, "activation time is required");
+        if (enabled && (!notificationsEnabled || notificationsEnabledSince == null)) notificationsEnabledSince = now;
+        notificationsEnabled = enabled;
+    }
+
+    public boolean isNotificationsEnabled() { return notificationsEnabled; }
+    public Instant getNotificationsEnabledSince() { return notificationsEnabledSince; }
 
     public Long getId() { return id; }
     public Company getCompany() { return company; }

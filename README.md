@@ -3,10 +3,11 @@
 OpenDART 기업 공시를 수집하고 관심 조건에 맞는 공시를 이메일로 알리는 단일 사용자 Backend 프로젝트입니다.
 요구사항의 기준은 [프로젝트 계획서](docs/PROJECT_PLAN.md)입니다.
 
-현재 **Phase 2: OpenDART 연동·관심 기업 관리·공시 자동 수집**까지 구현했습니다.
+현재 **Phase 3A: 공시 유형 분류·알림 조건 관리·후보 필터링**까지 구현했습니다.
 기존 5개 Entity를 재사용하며 ERD는 [도메인 모델](docs/DOMAIN_MODEL.md),
 API·수집 기준·설정·검증 방법은 [Phase 2 가이드](docs/PHASE_2.md)를 참고하세요.
-이메일 발송·유형별 알림 처리·인증·프론트엔드는 구현하지 않았습니다.
+분류·조건 API와 활성 기준은 [Phase 3A 가이드](docs/PHASE_3.md)에 정리했습니다.
+이메일 발송(3B), 수집→분류→발송 자동 통합(3C), 인증·프론트엔드는 구현하지 않았습니다.
 
 ## 환경과 버전
 
@@ -113,6 +114,21 @@ Health는 API 서버의 응답 여부만 확인합니다. DB 상태를 나타내
 JPA는 `ddl-auto=validate`, `open-in-view=false`입니다.
 Flyway가 5개 도메인 테이블·제약조건 및 기업 동기화 완료 메타데이터 테이블을 생성하고 이후 JPA가 매핑을 검증합니다.
 스키마 변경은 버전 SQL로 관리합니다.
+
+V3는 공시 분류 확인 시각과 기업/조건별 활성 기준을 추가합니다. 기존 V1·V2는 유지합니다.
+기존 데이터에 대해 알림을 자동 활성화하지 않습니다.
+
+## Phase 3A 사용
+
+- `POST /api/watchlist/{id}/disclosure-classifications`: 미분류 공시를 공식 A~E 조회 결과로 분류합니다.
+  이미 확인된 유형은 재사용하며 F~J를 E로 추정하지 않습니다. 수집 스케줄러에 자동 연결하지 않았습니다.
+- `GET /api/watchlist/{id}/notification-rules`: 기업별 설정과 조건을 조회합니다.
+- `PUT /api/watchlist/{id}/notification-rules/A`: `{"enabled":true}` 형식으로 A~E 조건을 등록·수정합니다.
+- `PATCH /api/watchlist/{id}/notifications`: `{"enabled":true}`로 기업별 후보 필터를 켭니다(기본 false).
+- `GET /api/watchlist/{id}/notification-candidates`: 최초 수집·활성화 이전·비활성 기간 데이터를 제외한 후보를 페이지 조회합니다.
+
+이 API는 발송 없는 미리보기입니다. 알림 작업·SMTP 호출·발송 이력은 생성하지 않습니다.
+상세 조회 전략·활성화 시각 정책·분류 설정은 [Phase 3A 가이드](docs/PHASE_3.md)를 참고하세요.
 
 ## Phase 2 사용 순서
 

@@ -3,6 +3,7 @@ package com.dartwatch.opendart;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dartwatch.disclosure.DisclosureType;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -33,10 +34,14 @@ public class OpenDartClient {
     }
 
     public List<CorpRecord> downloadCompanies() {
-        return corpCodeParser.parse(request("/corpCode.xml", null, null, null, 0));
+        return corpCodeParser.parse(request("/corpCode.xml", null, null, null, 0, null));
     }
 
     public List<DartDisclosure> findDisclosures(String corpCode, LocalDate from, LocalDate through) {
+        return findDisclosures(corpCode, from, through, null);
+    }
+
+    public List<DartDisclosure> findDisclosures(String corpCode, LocalDate from, LocalDate through, DisclosureType type) {
         if (corpCode == null || !corpCode.matches("[0-9]{8}") || from == null || through == null || from.isAfter(through)) {
             throw new IllegalArgumentException("Invalid disclosure query");
         }
@@ -47,7 +52,7 @@ public class OpenDartClient {
         for (int page = 1; page <= properties.getMaxPages(); page++) {
             DisclosurePage response;
             try {
-                response = objectMapper.readValue(request("/list.json", corpCode, from, through, page), DisclosurePage.class);
+                response = objectMapper.readValue(request("/list.json", corpCode, from, through, page, type), DisclosurePage.class);
             } catch (IOException ex) {
                 throw new OpenDartException(INVALID_RESPONSE);
             }
@@ -82,7 +87,7 @@ public class OpenDartClient {
         throw new OpenDartException(INVALID_RESPONSE);
     }
 
-    private byte[] request(String path, String corpCode, LocalDate from, LocalDate through, int page) {
+    private byte[] request(String path, String corpCode, LocalDate from, LocalDate through, int page, DisclosureType type) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) throw new OpenDartException(CONFIGURATION);
         try {
             return restClient.get().uri(builder -> {
@@ -93,6 +98,7 @@ public class OpenDartClient {
                             .queryParam("end_de", through.format(DateTimeFormatter.BASIC_ISO_DATE))
                             .queryParam("page_no", page).queryParam("page_count", properties.getPageSize())
                             .queryParam("last_reprt_at", "N").queryParam("sort", "date").queryParam("sort_mth", "asc");
+                    if (type != null) builder.queryParam("pblntf_ty", type.getDartCode());
                 }
                 return builder.build();
             }).exchange((request, response) -> {

@@ -1,6 +1,7 @@
 package com.dartwatch.opendart;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dartwatch.disclosure.DisclosureType;
 import java.net.SocketTimeoutException;
 import java.net.ConnectException;
 import java.time.LocalDate;
@@ -118,6 +119,26 @@ class OpenDartClientTests {
         var noKey = new OpenDartClient(RestClient.create(), properties, new CorpCodeParser(), new ObjectMapper());
         assertThatThrownBy(noKey::downloadCompanies).isInstanceOfSatisfying(OpenDartException.class,
                 ex -> assertThat(ex.getKind()).isEqualTo(OpenDartException.Kind.CONFIGURATION));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"A,PERIODIC", "B,MATERIAL_EVENT", "C,ISSUANCE", "D,SHAREHOLDING", "E,OTHER"})
+    void usesOfficialTypeCodeWithoutChangingCorrectionPolicy(String code, DisclosureType type) {
+        server.expect(queryParam("pblntf_ty", code)).andExpect(queryParam("last_reprt_at", "N"))
+                .andRespond(withSuccess(page(1, 2, 1, 1, item("20261023000001", "20261023")), MediaType.APPLICATION_JSON));
+        assertThat(client.findDisclosures("00000001", from, through, type)).hasSize(1);
+        server.verify();
+    }
+
+    @Test
+    void paginatesTypedSearchUsingTheSameTypeOnEveryPage() {
+        server.expect(queryParam("pblntf_ty", "A")).andExpect(queryParam("page_no", "1"))
+                .andRespond(withSuccess(page(1, 2, 3, 2, item("20261023000001", "20261023") + ","
+                        + item("20261023000002", "20261023")), MediaType.APPLICATION_JSON));
+        server.expect(queryParam("pblntf_ty", "A")).andExpect(queryParam("page_no", "2"))
+                .andRespond(withSuccess(page(2, 2, 3, 2, item("20261024000001", "20261024")), MediaType.APPLICATION_JSON));
+        assertThat(client.findDisclosures("00000001", from, through, DisclosureType.PERIODIC)).hasSize(3);
+        server.verify();
     }
 
     private void assertKind(OpenDartException.Kind kind) {

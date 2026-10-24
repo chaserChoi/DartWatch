@@ -31,6 +31,8 @@ public class Disclosure {
     @Column(length = 32)
     private DisclosureType disclosureType;
 
+    private Instant classificationCheckedAt;
+
     @Column(nullable = false, updatable = false)
     private boolean initialImport;
 
@@ -70,6 +72,7 @@ public class Disclosure {
     public String getReportName() { return reportName; }
     public LocalDate getReceiptDate() { return receiptDate; }
     public DisclosureType getDisclosureType() { return disclosureType; }
+    public Instant getClassificationCheckedAt() { return classificationCheckedAt; }
     public boolean isInitialImport() { return initialImport; }
     public Instant getCollectedAt() { return collectedAt; }
     public String getCompanyName() { return companyName; }

@@ -4,6 +4,7 @@ import com.dartwatch.api.ApiException;
 import com.dartwatch.company.CompanyRepository;
 import com.dartwatch.company.CompanyService.CompanyView;
 import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -15,10 +16,12 @@ import org.springframework.util.Assert;
 public class WatchlistService {
     private final CompanyRepository companies;
     private final WatchedCompanyRepository watched;
+    private final Clock clock;
 
-    public WatchlistService(CompanyRepository companies, WatchedCompanyRepository watched) {
+    public WatchlistService(CompanyRepository companies, WatchedCompanyRepository watched, Clock clock) {
         this.companies = companies;
         this.watched = watched;
+        this.clock = clock;
     }
 
     @Transactional
@@ -41,7 +44,7 @@ public class WatchlistService {
     public WatchView setMonitoring(Long id, Boolean enabled) {
         Assert.isTrue(id > 0 && enabled != null, "Invalid monitoring request");
         var watch = watched.findForUpdate(id).orElseThrow(WatchlistService::notFound);
-        watch.setMonitoringEnabled(enabled);
+        watch.setMonitoringEnabled(enabled, clock.instant());
         return WatchView.from(watch);
     }
 
