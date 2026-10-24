@@ -15,6 +15,9 @@ public class KakaoNotificationSender implements NotificationSender {
         this.properties = properties; this.tokens = tokens; this.client = client; this.mapper = mapper;
     }
     @Override public String channel() { return "KAKAO"; }
+    public static void validateLink(KakaoProperties properties) {
+        KakaoMessage.validateLink(properties);
+    }
     @Override
     public SendResult send(Message message) {
         if (!properties.isEnabled()) return SendResult.failed("KAKAO_DISABLED", false);

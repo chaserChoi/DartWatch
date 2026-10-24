@@ -23,9 +23,11 @@ class KakaoLocalTests {
     private final KakaoOAuthService oauth = mock(KakaoOAuthService.class);
     private final KakaoTokenService tokens = mock(KakaoTokenService.class);
     private final KakaoNotificationSender sender = mock(KakaoNotificationSender.class);
+    private final com.dartwatch.notification.NotificationProperties notifications = new com.dartwatch.notification.NotificationProperties();
     private MockMvc mvc;
     @BeforeEach void setup() {
-        mvc = MockMvcBuilders.standaloneSetup(new KakaoLocalController(oauth, tokens, sender))
+        notifications.setEnabled(true);
+        mvc = MockMvcBuilders.standaloneSetup(new KakaoLocalController(oauth, tokens, sender, notifications))
                 .addInterceptors(new KakaoLocalGuard(p, "127.0.0.1")).setControllerAdvice(new ApiExceptionHandler()).build();
     }
     @Test void localConnectionPageHasNoSecretAndDisablesCachingAndReferrers() throws Exception {
@@ -85,6 +87,12 @@ class KakaoLocalTests {
         assertThatThrownBy(() -> new KakaoLocalConfiguration(properties(), new MockEnvironment()
                 .withProperty("server.address", "127.0.0.1").withProperty("server.forward-headers-strategy", "framework")))
                 .isInstanceOf(IllegalStateException.class);
+    }
+    @Test void globalSwitchAlsoBlocksExplicitLocalTestMessage() throws Exception {
+        notifications.setEnabled(false);
+        mvc.perform(local(post("/api/integrations/kakao/test-message").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"confirmSend\":true}"))).andExpect(status().isServiceUnavailable());
+        verifyNoInteractions(sender);
     }
     private static MockHttpServletRequestBuilder local(MockHttpServletRequestBuilder request) {
         return request.header("Host", "localhost:8080").header("Origin", "http://localhost:8080")

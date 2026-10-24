@@ -42,7 +42,7 @@ class KakaoPersistenceTests {
     }
     @AfterEach void disable() { p.setEnabled(false); }
     @Test void v5EncryptsTokensAndRestoresAccessAfterServiceRestartWithoutHttp() {
-        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("5");
+        assertThat(flyway.info().current().getVersion().toString()).isEqualTo("6");
         service.connect("mock-code");
         var row = store.load();
         assertThat(row.access()).startsWith("v1:").doesNotContain("mock-access");

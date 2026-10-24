@@ -8,6 +8,9 @@ import org.springframework.util.Assert;
 
 final class KakaoMessage {
     private KakaoMessage() { }
+    static void validateLink(KakaoProperties properties) {
+        link(properties, "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=00000000000000");
+    }
     static Map<String, Object> create(NotificationSender.Message m, KakaoProperties properties) {
         Assert.notNull(m, "message required");
         Assert.isTrue(m.rceptNo() != null && m.rceptNo().matches("[0-9]{14}"), "Invalid receipt");

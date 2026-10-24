@@ -62,6 +62,14 @@ class EmailNotificationSenderTests {
     }
 
     @Test
+    void emailChannelSwitchBlocksSmtpEvenWhenGlobalNotificationsAreEnabled() {
+        properties.setEmailEnabled(false);
+        clearInvocations(mail);
+        assertThat(sender.send(message()).error()).isEqualTo("NOTIFICATIONS_DISABLED");
+        verifyNoInteractions(mail);
+    }
+
+    @Test
     void authenticationFailureIsPermanentAndSanitized() {
         doThrow(new MailAuthenticationException("secret provider diagnostic")).when(mail).send(mime);
         var result = sender.send(message());

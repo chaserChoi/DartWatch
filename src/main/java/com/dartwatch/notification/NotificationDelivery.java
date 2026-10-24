@@ -25,6 +25,9 @@ public class NotificationDelivery {
     @Column(length = 320, updatable = false)
     private String recipient;
 
+    @Column(length = 20)
+    private String externalMessageId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private NotificationStatus status = NotificationStatus.PENDING;
@@ -66,7 +69,12 @@ public class NotificationDelivery {
         Assert.notNull(channel, "channel is required");
         this.disclosure = disclosure;
         this.channel = channel;
-        this.recipient = recipient == null ? null : EmailAddress.normalize(recipient);
+        if (channel == NotificationChannel.EMAIL) this.recipient=recipient==null?null:EmailAddress.normalize(recipient);
+        else {
+            Assert.isTrue(recipient!=null && recipient.matches(channel==NotificationChannel.DISCORD
+                    ? "discord:[0-9a-f]{64}" : "kakao:[0-9a-f-]{36}"),"Invalid notification target");
+            this.recipient=recipient;
+        }
         this.nextAttemptAt = createdAt;
     }
 
@@ -120,6 +128,7 @@ public class NotificationDelivery {
     public Instant getCreatedAt() { return createdAt; }
     public long getVersion() { return version; }
     public String getRecipient() { return recipient; }
+    public String getExternalMessageId() { return externalMessageId; }
     public Instant getNextAttemptAt() { return nextAttemptAt; }
     public boolean isRetryable() { return retryable; }
 }

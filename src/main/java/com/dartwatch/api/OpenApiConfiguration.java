@@ -17,7 +17,7 @@ public class OpenApiConfiguration {
         return api -> {
             api.setInfo(new Info().title("DartWatch API").version("MVP")
                     .description("단일 사용자 공시 모니터링 API. 수집 응답은 HTTP 상태와 함께 기업별 결과를 확인하세요. "
-                            + "SENT는 SMTP 수락이며 UNKNOWN은 자동 재발송하지 않습니다."));
+                            + "SENT는 공급자 수락이며 UNKNOWN은 자동 재발송하지 않습니다. 채널별 오류와 이력은 독립적으로 관리합니다."));
             if (api.getComponents() == null) api.setComponents(new Components());
             var problem = new ObjectSchema();
             problem.addProperty("type", new StringSchema().format("uri"));

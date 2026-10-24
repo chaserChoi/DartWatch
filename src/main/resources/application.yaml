@@ -72,6 +72,7 @@ dartwatch:
       interval: ${NOTIFICATION_SCHEDULER_INTERVAL:PT1M}
       initial-delay: ${NOTIFICATION_SCHEDULER_INITIAL_DELAY:PT30S}
     enabled: ${NOTIFICATION_ENABLED:false}
+    email-enabled: ${EMAIL_ENABLED:true}
     email-to: ${NOTIFICATION_EMAIL_TO:}
     mail-from: ${MAIL_FROM:}
     max-retries: ${NOTIFICATION_MAX_RETRIES:3}

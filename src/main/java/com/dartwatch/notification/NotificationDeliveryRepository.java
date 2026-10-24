@@ -14,4 +14,7 @@ public interface NotificationDeliveryRepository extends JpaRepository<Notificati
     Page<NotificationDelivery> findAll(Pageable pageable);
     @EntityGraph(attributePaths = {"disclosure", "disclosure.company"})
     Page<NotificationDelivery> findByStatus(NotificationStatus status, Pageable pageable);
+    @EntityGraph(attributePaths = {"disclosure", "disclosure.company"})
+    @org.springframework.data.jpa.repository.Query("select n from NotificationDelivery n where (:status is null or n.status=:status) and (:channel is null or n.channel=:channel)")
+    Page<NotificationDelivery> search(NotificationStatus status, NotificationChannel channel, Pageable pageable);
 }

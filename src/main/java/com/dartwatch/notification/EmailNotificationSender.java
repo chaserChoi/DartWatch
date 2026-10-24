@@ -36,7 +36,7 @@ public class EmailNotificationSender implements NotificationSender {
 
     @Override
     public SendResult send(Message message) {
-        if (!properties.isEnabled()) return SendResult.failed("NOTIFICATIONS_DISABLED", false);
+        if (!properties.isEnabled() || !properties.isEmailEnabled()) return SendResult.failed("NOTIFICATIONS_DISABLED", false);
         var sender = mailSender.getIfAvailable();
         if (sender == null || mailProperties.getHost() == null || mailProperties.getHost().isBlank()) {
             return SendResult.failed("CONFIGURATION", false);

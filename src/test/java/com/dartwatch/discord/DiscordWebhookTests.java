@@ -64,6 +64,17 @@ class DiscordWebhookTests {
         server.verify();
     }
 
+    @Test
+    void targetIdentifierNeverContainsWebhookSecretsAndChangesWhenTargetChanges() {
+        var client=new DiscordWebhookClient(RestClient.create(),properties,mapper,clock);
+        String first=client.targetIdentifier();
+        assertThat(first).matches("discord:[0-9a-f]{64}").doesNotContain("https://","mock_only");
+        properties.setWebhookUrl(URL+"changed");
+        assertThat(client.targetIdentifier()).isNotEqualTo(first);
+        properties.setWebhookUrl("https://untrusted.example/webhook");
+        assertThat(client.targetIdentifier()).isNull();
+    }
+
     @ParameterizedTest
     @CsvSource({"400,DISCORD_BAD_REQUEST", "401,DISCORD_AUTHENTICATION", "403,DISCORD_AUTHENTICATION",
             "404,DISCORD_WEBHOOK_NOT_FOUND", "422,DISCORD_REJECTED"})

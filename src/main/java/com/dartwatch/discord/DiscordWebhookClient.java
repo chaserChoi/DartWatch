@@ -82,6 +82,15 @@ public class DiscordWebhookClient {
         }
     }
 
+    public String targetIdentifier() {
+        URI uri = endpoint();
+        if (uri == null) return null;
+        try {
+            return "discord:" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(uri.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException ex) { throw new IllegalStateException("Digest unavailable"); }
+    }
+
     private URI endpoint() {
         try {
             String value = properties.getWebhookUrl();

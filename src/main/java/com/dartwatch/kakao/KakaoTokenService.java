@@ -17,7 +17,9 @@ public class KakaoTokenService {
     public synchronized void connect(String code) {
         requireEnabled(); crypto.validateKey();
         var tokens = client.exchange(code);
-        save(tokens, tokens.refresh(), clock.instant().plus(tokens.refreshTtl()));
+        store.replaceConnection(crypto.clientFingerprint(), crypto.encrypt(tokens.access(), purpose("access")),
+                crypto.encrypt(tokens.refresh(), purpose("refresh")), clock.instant().plus(tokens.accessTtl()),
+                clock.instant().plus(tokens.refreshTtl()));
     }
     public synchronized Access access() { return valid(false, null); }
     public synchronized Access refreshRejected(Access rejected) { return valid(true, rejected); }
@@ -56,6 +58,15 @@ public class KakaoTokenService {
     }
     private String purpose(String kind) { return "dartwatch:kakao:" + kind + ":" + crypto.clientFingerprint(); }
     public synchronized void reconnect() { store.reconnect("RECONNECT_REQUIRED"); }
+    public synchronized String targetIdentifier() {
+        requireEnabled();
+        var row = store.load();
+        if (row == null || !"CONNECTED".equals(row.status()) || !crypto.clientFingerprint().equals(row.fingerprint())
+                || !clock.instant().isBefore(row.refreshExpiry())) return null;
+        crypto.decrypt(row.access(), purpose("access"));
+        crypto.decrypt(row.refresh(), purpose("refresh"));
+        return store.connectionIdentifier();
+    }
     public synchronized Status status() {
         var row = store.load();
         if (row == null) return new Status("DISCONNECTED", null, null, null);

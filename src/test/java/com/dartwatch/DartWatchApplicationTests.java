@@ -45,6 +45,7 @@ class DartWatchApplicationTests {
     @MockitoBean CompanyDirectoryStore directoryStore;
     @MockitoBean NotificationRuleRepository notificationRules;
     @MockitoBean NotificationWorkStore notificationWorkStore;
+    @MockitoBean com.dartwatch.notification.NotificationChannelService notificationChannelService;
     @MockitoBean com.dartwatch.kakao.KakaoTokenStore kakaoTokenStore;
     @MockitoBean NotificationDeliveryRepository notificationDeliveries;
 

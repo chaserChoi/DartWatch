@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("dartwatch.notification")
 public class NotificationProperties {
     private boolean enabled;
+    private boolean emailEnabled = true;
     private String emailTo = "";
     private String mailFrom = "";
     private int maxRetries = 3;
@@ -14,6 +15,8 @@ public class NotificationProperties {
     private Duration processingTimeout = Duration.ofMinutes(10);
 
     public boolean isEnabled() { return enabled; }
+    public boolean isEmailEnabled() { return emailEnabled; }
+    public void setEmailEnabled(boolean value) { emailEnabled = value; }
     public void setEnabled(boolean value) { enabled = value; }
     public String getEmailTo() { return emailTo; }
     public void setEmailTo(String value) { emailTo = value; }

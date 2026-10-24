@@ -17,8 +17,11 @@ public class KakaoLocalController {
     private final KakaoOAuthService oauth;
     private final KakaoTokenService tokens;
     private final KakaoNotificationSender sender;
-    public KakaoLocalController(KakaoOAuthService oauth, KakaoTokenService tokens, KakaoNotificationSender sender) {
+    private final com.dartwatch.notification.NotificationProperties notifications;
+    public KakaoLocalController(KakaoOAuthService oauth, KakaoTokenService tokens, KakaoNotificationSender sender,
+                                com.dartwatch.notification.NotificationProperties notifications) {
         this.oauth = oauth; this.tokens = tokens; this.sender = sender;
+        this.notifications = notifications;
     }
     @GetMapping(value = "/connect", produces = MediaType.TEXT_HTML_VALUE)
     public String connect() {
@@ -45,6 +48,8 @@ public class KakaoLocalController {
     @PostMapping("/test-message")
     public NotificationSender.SendResult testMessage(@RequestBody TestRequest request) {
         Assert.isTrue(Boolean.TRUE.equals(request.confirmSend()), "Explicit send confirmation required");
+        if (!notifications.isEnabled()) throw new com.dartwatch.api.ApiException(HttpStatus.SERVICE_UNAVAILABLE,
+                "NOTIFICATIONS_DISABLED", "알림 전송이 비활성화되어 있습니다.");
         return sender.send(new NotificationSender.Message(null, request.companyName(), request.reportName(), request.typeCode(), request.receiptDate(), request.rceptNo()));
     }
     @ExceptionHandler(KakaoFailure.class)

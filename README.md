@@ -1,19 +1,18 @@
 # DartWatch
 
-OpenDART 공시를 수집하고 관심 기업·공시 유형 조건에 맞는 신규 공시를 이메일로 알리는 단일 사용자 Spring Boot Backend입니다.
+OpenDART 공시를 수집하고 관심 기업·공시 유형 조건에 맞는 신규 공시를 이메일·Discord·카카오톡으로 알리는 단일 사용자 Spring Boot Backend입니다.
 기업별 공시를 반복 확인하는 수고를 줄이고 정정공시·실패 처리·중복 알림을 일관되게 관리하는 개인 프로젝트입니다.
 
 **Phase 1~4 개발과 Mock 기반 MVP 검증을 완료했습니다.** 실제 3개 기업의 신규 공시를 장시간 수집해 Gmail 수신까지 확인한 운영 검증은 별개입니다.
 이번 최종 검증에서는 실제 OpenDART·Gmail을 호출하지 않았습니다. 최종 판정과 미검증 항목은 [PHASE_4](docs/PHASE_4.md)에 있습니다.
 
-추가로 **Phase 5A Discord Webhook 발송 모듈**을 구현했습니다. 기존 자동 파이프라인에는 연결하지 않았으며 실제 Discord 메시지는 보내지 않았습니다.
-구조·오류/대기 정책·사람이 1건을 직접 확인하는 방법은 [PHASE_5](docs/PHASE_5.md)에 있습니다.
+**Phase 5A Discord·5B Kakao 모듈과 5C 다중 채널 통합을 구현했습니다.** 기업별로 채널을 선택하고 채널별 작업·이력·재시도를 관리합니다.
+구조·오류/대기 정책·사람이 직접 확인하는 방법은 [PHASE_5](docs/PHASE_5.md)에 있습니다. 실제 외부 메시지는 보내지 않았습니다.
 기본 `DISCORD_ENABLED=false`, `DISCORD_WEBHOOK_URL`은 빈 값이며 실제 값은 실행 환경에만 공급합니다.
 연결/응답 timeout은 `DISCORD_CONNECT_TIMEOUT=PT5S`, `DISCORD_READ_TIMEOUT=PT10S`로 조정합니다.
-Discord를 켜도 기존 수집/이메일 스케줄러는 Discord를 호출하지 않습니다. 다중 채널 작업 배분은 Phase 5C 후속 작업입니다.
+전역 알림·채널 환경설정·기업별 채널 선택이 모두 활성화되고 유형 조건까지 일치해야 발송합니다.
 
-**Phase 5B Kakao OAuth·나에게 보내기 모듈**도 독립적으로 구현했습니다. 기본 `KAKAO_ENABLED=false`,
-`KAKAO_LOCAL_CONNECT_ENABLED=false`이며 자동 수집·발송 파이프라인에는 연결하지 않았습니다.
+Kakao는 기본 `KAKAO_ENABLED=false`, `KAKAO_LOCAL_CONNECT_ENABLED=false`이며 본인 계정 연결이 추가로 필요합니다.
 본인 계정 연결, AES-256-GCM 토큰 저장·갱신, Mock 검증과 로컬 수동 확인 절차는 [PHASE_5의 5B 절](docs/PHASE_5.md#phase-5b--kakao-oauth와-나에게-보내기)에 있습니다.
 등록 웹 도메인이 미확인 상태여서 링크 설정은 비어 있으며, 설정 전에는 메시지를 차단합니다. 실제 로그인·카카오톡 발송은 검증하지 않았습니다.
 
@@ -22,14 +21,14 @@ Discord를 켜도 기존 수집/이메일 스케줄러는 Discord를 호출하�
 - 기업 고유번호 ZIP/XML 동기화, 기업명·종목코드 검색, 관심 기업 관리.
 - 기본 10분 자동 수집, 페이지 검증, 최초/증분 구분, 체크포인트·rcept_no UNIQUE로 중복 방지.
 - 공식 A~E 유형 분류와 기업별 알림 조건. F~J를 E로 추정하지 않고 미확인 유형은 NULL로 유지.
-- 이메일 작업 생성·DB 선점·제한 재시도·이력. 불확실한 UNKNOWN은 자동 재전송하지 않음.
+- 채널별 작업 생성·DB 선점·제한 재시도·이력. 불확실한 UNKNOWN은 자동 재전송하지 않음.
 - 저장 공시 검색·유형 필터·페이지네이션·DART 링크, Swagger UI와 공통 오류 응답.
 
 | 영역 | 프로젝트 고정 버전/기술 |
 | --- | --- |
 | 언어/빌드 | Java 21, Gradle 8.14.3 Wrapper, Groovy DSL |
 | 서버 | Spring Boot 3.5.16, RestClient, Spring Scheduler |
-| 영속성 | Spring Data JPA, PostgreSQL 17.11, Flyway V1~V5, Hibernate validate |
+| 영속성 | Spring Data JPA, PostgreSQL 17.11, Flyway V1~V6, Hibernate validate |
 | 이메일/문서 | Spring Mail(JavaMailSender), Springdoc OpenAPI 2.9.1 |
 | 테스트 | JUnit 5·Mockito(Boot BOM), PostgreSQL·Mock HTTP·폐기용 로컬 SMTP |
 | 개발 인프라 | Docker Compose v2. Redis·Kafka·외부 큐 없음 |
@@ -47,11 +46,12 @@ Boot BOM으로 의존성 버전을 관리합니다. 서비스 사용자 인증·
                                   │ 활성 기준/조건 일치
                               PENDING 작업 생성
                                   │
-독립 전송 타이머(1분) → DB 선점 PROCESSING → NotificationSender → SMTP
-                                  └→ SENT / FAILED / UNKNOWN
+독립 전송 타이머(1분) → 채널·대상별 DB 선점 PROCESSING → 해당 NotificationSender
+                                  ├→ SMTP / Discord Webhook / Kakao 나에게 보내기
+                                  └→ 채널별 SENT / FAILED / UNKNOWN
 ```
 
-SMTP와 DB는 별도 트랜잭션입니다. SENT는 SMTP 수락이며 수신함 전달이나 exactly-once를 보장하지 않습니다.
+외부 발송과 DB는 별도 트랜잭션입니다. SENT는 공급자 수락이며 최종 전달·열람이나 exactly-once를 보장하지 않습니다.
 
 ```text
 dartwatch/
@@ -67,7 +67,7 @@ dartwatch/
 │   ├── notification/            # 조건·전송·이력·재시도
 │   ├── discord/, kakao/         # 독립 발송 모듈·로컬 OAuth·암호화 토큰
 │   └── scheduling/, health/
-├── src/main/resources/application.yaml, db/migration/V1~V5
+├── src/main/resources/application.yaml, db/migration/V1~V6
 └── src/test/java/com/dartwatch/  # 단위·통합·로그·외부 opt-in 테스트
 ```
 
@@ -96,6 +96,7 @@ Compose는 PostgreSQL만 실행하고 포트는 127.0.0.1:5432에 바인딩합�
 기존 볼륨의 DB 계정/비밀번호는 .env 수정만으로 바뀌지 않습니다. 기존 DB 정보를 확인하거나 별도 개발 DB를 사용하세요.
 기동 시 Flyway가 마이그레이션하고 JPA가 validate합니다. 기존 V1~V4 SQL은 수정하지 않습니다.
 V5는 본인 카카오 연결 1건을 암호화해 저장하는 별도 테이블이며 기존 공시·이메일 데이터는 변경하지 않습니다.
+V6는 채널 선택·대상별 활성 기준/대기 시각·외부 메시지 ID와 Kakao 연결 식별자를 추가합니다. 기존 이메일 이력·수신자·활성 기준을 보존합니다.
 
 ```powershell
 .\gradlew.bat build
@@ -126,6 +127,12 @@ $, #, 역슬래시 등은 두 파서의 해석이 다르므로 복잡한 비밀�
 | OPENDART_RATE_LIMIT_COOLDOWN | PT1H |
 | CLASSIFICATION_BATCH_SIZE / CLASSIFICATION_WINDOW_DAYS / CLASSIFICATION_RETRY_INTERVAL | 100 / 30 / PT24H |
 | NOTIFICATION_ENABLED / NOTIFICATION_SCHEDULER_ENABLED | false / false |
+| EMAIL_ENABLED / DISCORD_ENABLED / KAKAO_ENABLED | true / false / false. EMAIL 기본 선택은 기존 호환용이며 전역 false에서는 전송하지 않음 |
+| DISCORD_WEBHOOK_URL / DISCORD_CONNECT_TIMEOUT / DISCORD_READ_TIMEOUT | 빈 값 / PT5S / PT10S |
+| KAKAO_REST_API_KEY / KAKAO_CLIENT_SECRET / KAKAO_TOKEN_ENCRYPTION_KEY | 빈 값. 앱 인증정보와 별도 Base64 32바이트 암호화 키 |
+| KAKAO_REDIRECT_URI / KAKAO_LOCAL_CONNECT_ENABLED | http://localhost:8080/api/integrations/kakao/callback / false |
+| KAKAO_REGISTERED_WEB_ORIGIN / KAKAO_MESSAGE_WEB_URL | 빈 값. 등록 링크 확인 전 발송 차단 |
+| KAKAO_CONNECT_TIMEOUT / KAKAO_READ_TIMEOUT | PT5S / PT10S |
 | NOTIFICATION_SCHEDULER_INTERVAL / NOTIFICATION_SCHEDULER_INITIAL_DELAY | PT1M / PT30S |
 | NOTIFICATION_EMAIL_TO / MAIL_FROM | 빈 값. 단일 수신/발신 주소 |
 | MAIL_HOST / MAIL_PORT / MAIL_USERNAME / MAIL_PASSWORD | 빈 값 / 587 / 빈 값 / 빈 값 |
@@ -134,7 +141,7 @@ $, #, 역슬래시 등은 두 파서의 해석이 다르므로 복잡한 비밀�
 | NOTIFICATION_MAX_RETRIES / NOTIFICATION_RETRY_INTERVAL | 3 / PT10M. 최초 1회 + 최대 3회 추가 시도 |
 | NOTIFICATION_PROCESSING_TIMEOUT / NOTIFICATION_BATCH_SIZE | PT10M / 20 |
 
-설정 변경 후 재시작합니다. **수집·전역 메일·자동 전송의 세 활성화 플래그는 모두 기본 false**입니다.
+설정 변경 후 재시작합니다. **수집·전역 알림·자동 전송의 세 활성화 플래그는 모두 기본 false**입니다.
 허용 범위와 장애 정책은 [Phase 4](docs/PHASE_4.md)를 참고하세요.
 
 ## OpenDART 키와 SMTP 계정 준비
@@ -171,14 +178,43 @@ Invoke-RestMethod -Method Patch "$base/api/watchlist/$($watch.id)/notifications"
 동기화 후 기업 검색은 DB만 조회합니다. 삼성전자 005930, SK하이닉스 000660, NAVER 035420 등 검색 결과의 DB id로 등록합니다.
 corp_code와 stock_code를 바꿔 넣지 않습니다. 결과가 비어 있으면 동기화/검색 결과를 먼저 확인하세요.
 
-- COLLECTION_ENABLED=true로 재시작: 기본 10분 fixed delay로 수집·분류. 메일이 꺼져 있으면 작업 생성/전송 없음.
-- SMTP 설정과 기업별 조건을 확인하고 실제 발송을 허용한 뒤 NOTIFICATION_ENABLED=true로 재시작: 적격 작업 생성 가능.
+- COLLECTION_ENABLED=true로 재시작: 기본 10분 fixed delay로 수집·분류. 전역 알림이 꺼져 있으면 작업 생성/전송 없음.
+- 채널 설정·연결과 기업별 조건/채널을 확인하고 실제 발송을 허용한 뒤 NOTIFICATION_ENABLED=true로 재시작: 적격 작업 생성 가능.
 - NOTIFICATION_SCHEDULER_ENABLED=true도 설정: 기본 1분마다 대기/안전한 재시도 작업 자동 처리.
   자동 타이머가 꺼져 있으면 전송은 명시적 dispatch 요청에서만 수행됩니다.
 
 최초 과거 데이터와 활성화 이전/비활성 기간 탐지는 발송하지 않습니다. 기업·조건·수신자 활성 기준보다 최초 저장 시각이 뒤이고
 initial_import=false여야 합니다. 최초 기준일 이하 접수일은 늦게 발견해도 과거로 처리합니다.
 수동 수집은 즉시 분류/전송하지 않지만 자동 알림이 켜져 있으면 이후 주기의 대상이 될 수 있습니다.
+
+## 채널 설정과 직접 확인
+
+이메일은 기존 설정을 유지하고, 기업별 Discord/Kakao는 별도로 선택합니다. 위 예시의 `$watch.id`로 다음과 같이 설정할 수 있습니다.
+설정/조회 요청은 메시지를 발송하지 않습니다.
+
+```powershell
+Invoke-RestMethod "$base/api/notification-channels"
+Invoke-RestMethod "$base/api/watchlist/$($watch.id)/notification-channels"
+Invoke-RestMethod -Method Put "$base/api/watchlist/$($watch.id)/notification-channels/DISCORD" `
+  -ContentType 'application/json' -Body '{"enabled":true}'
+# KAKAO/EMAIL도 같은 경로로 선택하며 enabled=false로 개별 해제합니다.
+```
+
+Discord는 테스트 채널의 Integrations/Webhooks에서 전용 Webhook을 준비하고 실행 환경에 URL을 설정합니다.
+Kakao는 Developers에서 로그인·Redirect URI·talk_message·등록 웹 도메인을 확인하고 별도 암호화 키를 설정한 뒤,
+loopback으로 바인딩해 `/api/integrations/kakao/connect`에서 본인 계정을 연결합니다. 연결만 할 때 전역 알림은 false로 유지합니다.
+등록 도메인이 미확인인 현재 설정에서는 Kakao 작업을 만들거나 발송하지 않습니다.
+
+세 채널 모두 공통 A~E 유형 조건을 따릅니다. 채널 추가/재활성화·대상 변경 전 탐지는 소급하지 않으며,
+선택된 채널도 전역 알림과 해당 채널의 환경변수가 꺼져 있으면 실제 발송되지 않습니다.
+`EMAIL_ENABLED=false`이면 이메일만 차단하므로 SMTP 없이 Discord/Kakao를 사용할 수 있습니다.
+연결 상태의 CONFIGURED는 로컬 설정 확인이며 실제 SMTP 인증·Webhook 존재를 보장하지 않습니다.
+
+승인한 사람이 Discord/Kakao 1건 또는 3개 채널을 직접 검증하는 절차는
+[PHASE_5의 5C 검증 가이드](docs/PHASE_5.md#phase-5c--다중-채널-통합)에 있습니다. 다른 대기 작업이 없는 별도 개발 DB에서만 진행합니다.
+수집·자동 발송은 끄고, 직접 dispatch할 때만 confirmSend=true를 사용합니다. UNKNOWN이면 확인 전 반복하지 않습니다.
+검증 뒤 전역/Discord/Kakao/로컬 연결/수집/자동 전송 플래그를 false로 되돌리고 재시작합니다.
+동일 공시의 세 작업은 독립적이며 한 채널 실패 때문에 SENT인 다른 채널을 재전송하지 않습니다.
 
 ## 주요 REST API
 
@@ -196,10 +232,13 @@ initial_import=false여야 합니다. 최초 기준일 이하 접수일은 늦�
 | GET | /api/watchlist/{watchId}/notification-rules | 기업별 알림/조건 설정 |
 | PUT | /api/watchlist/{watchId}/notification-rules/{type} | A~E, enabled로 등록/수정/해제 |
 | PATCH | /api/watchlist/{watchId}/notifications | 기업별 알림 켜기/끄기 |
+| GET | /api/watchlist/{watchId}/notification-channels | EMAIL/DISCORD/KAKAO 선택·활성 기준 조회 |
+| PUT | /api/watchlist/{watchId}/notification-channels/{channel} | enabled true/false로 채널 선택 변경, 발송 없음 |
+| GET | /api/notification-channels | 비밀값 없는 로컬 설정/연결 상태, 외부 probe 없음 |
 | GET | /api/watchlist/{watchId}/notification-candidates | 발송 없는 후보 미리보기 |
 | POST | /api/watchlist/{watchId}/notification-jobs | PENDING 생성, 전송 없음 |
 | POST | /api/notifications/dispatch | 실제 전송 가능. confirmSend=true와 전역 활성화 필수 |
-| GET | /api/notifications?status=UNKNOWN&page=0&size=20 | 전체/상태별 이력 |
+| GET | /api/notifications?channel=DISCORD&status=UNKNOWN&page=0&size=20 | 전체/채널/상태별 이력, 조건 AND |
 
 목록은 `{items,page,size,totalElements}`, 관심 목록은 배열입니다. page는 0 이상, size는 1~100입니다.
 공시 필터는 companyId, query(기업명 부분/종목코드 일치), type(공식 대문자 A~J)이며 AND로 결합합니다.
@@ -265,8 +304,8 @@ dispatch는 발송을 일으킬 수 있으므로 상태 확인을 위해 호출�
 - A~E에서 찾지 못한 공시는 미분류입니다. F~J 추가 분류 호출은 하지 않습니다. 분류는 기본 100개/30일 배치입니다.
 - API cooldown은 메모리 상태여서 재시작 시 초기화됩니다. 반복 재시작으로 제한을 우회하지 않습니다.
 - 실제 10분 장시간 운영·OS 강제 종료·다중 인스턴스·최종 메일 전달은 NOT VERIFIED이며 exactly-once를 보장하지 않습니다.
-- Phase 5A/5B: Discord/Kakao 독립 모듈. Phase 5C 후보: 채널별 조건·작업·이력과 안전한 전송 배분.
+- Phase 5A~5C: Discord/Kakao 모듈과 기업별 채널 선택·독립 작업/이력 통합 완료.
   Phase 6 후보: 인증·대시보드·관측성·대량 조회 개선.
 - 운영/배포 전 비밀정보 관리·TLS/접근 통제·DB 백업/복원·모니터링·승인된 외부 E2E를 별도 준비합니다.
 
-현재 Phase 5B까지 구현했습니다. Phase 5C·6, 실제 카카오 로그인·메시지 발송, Commit·Push·배포는 수행하지 않았습니다.
+현재 Phase 5C까지 구현했습니다. Phase 6, 실제 외부 로그인·메시지 발송, Commit·Push·배포는 수행하지 않았습니다.

@@ -21,13 +21,27 @@ public class KakaoTokenStore {
     }
     @Transactional
     public void save(String fingerprint, String access, String refresh, Instant accessExpiry, Instant refreshExpiry) {
+        write(fingerprint, access, refresh, accessExpiry, refreshExpiry, false);
+    }
+    @Transactional
+    public void replaceConnection(String fingerprint, String access, String refresh, Instant accessExpiry, Instant refreshExpiry) {
+        write(fingerprint, access, refresh, accessExpiry, refreshExpiry, true);
+    }
+    private void write(String fingerprint, String access, String refresh, Instant accessExpiry, Instant refreshExpiry, boolean replace) {
         jdbc.update("""
-                INSERT INTO kakao_connection VALUES (1,'CONNECTED',?,?,?,?,?,?,NULL)
+                INSERT INTO kakao_connection (singleton_id,status,client_fingerprint,access_ciphertext,refresh_ciphertext,
+                    access_expires_at,refresh_expires_at,updated_at,last_error) VALUES (1,'CONNECTED',?,?,?,?,?,?,NULL)
                 ON CONFLICT (singleton_id) DO UPDATE SET status='CONNECTED',client_fingerprint=EXCLUDED.client_fingerprint,
                     access_ciphertext=EXCLUDED.access_ciphertext,refresh_ciphertext=EXCLUDED.refresh_ciphertext,
                     access_expires_at=EXCLUDED.access_expires_at,refresh_expires_at=EXCLUDED.refresh_expires_at,
-                    updated_at=EXCLUDED.updated_at,last_error=NULL
-                """, fingerprint, access, refresh, Timestamp.from(accessExpiry), Timestamp.from(refreshExpiry), Timestamp.from(clock.instant()));
+                    updated_at=EXCLUDED.updated_at,last_error=NULL,
+                    connection_id=CASE WHEN ? THEN gen_random_uuid() ELSE kakao_connection.connection_id END
+                """, fingerprint, access, refresh, Timestamp.from(accessExpiry), Timestamp.from(refreshExpiry), Timestamp.from(clock.instant()), replace);
+    }
+    @Transactional(readOnly = true)
+    public String connectionIdentifier() {
+        return jdbc.query("SELECT connection_id FROM kakao_connection WHERE singleton_id=1 AND status='CONNECTED'",
+                (row, index) -> "kakao:" + row.getString(1)).stream().findFirst().orElse(null);
     }
     @Transactional
     public void beginRefresh() {

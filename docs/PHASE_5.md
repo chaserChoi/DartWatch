@@ -1,5 +1,8 @@
 # Phase 5A — Discord Incoming Webhook 모듈
 
+**현재 기준은 하단 Phase 5C 통합 절이다.** 5A·5B 절은 각 단계 완료 당시의 독립 모듈 설계/검증 기록이며,
+현재는 기존 수집 파이프라인·발송 스케줄러에 채널별 작업 배분을 연결했다. 실제 외부 발송은 실행하지 않았다.
+
 Phase 5A만 구현했다. Discord 발송 모듈과 Mock 테스트 범위이며, 기존 수집/이메일 작업의 다중 채널 배분은 Phase 5C 후속 작업이다.
 실제 Discord·OpenDART·Gmail을 호출하지 않았다. 신규 라이브러리·REST API·Entity·Flyway 마이그레이션은 없다.
 
@@ -330,3 +333,195 @@ Phase 5C·6, 실제 로그인/발송, Commit·Push·배포는 수행하지 않�
 초기 실행의 Mock 요청 설정 오류와 테스트 컨텍스트들의 DB 연결 한도 초과는 수정한 후 전체 재실행으로 통과했다.
 PostgreSQL 17.11에서 V1~V5 적용·제약조건·재시작/동시 갱신·DB 저장 실패를 확인했고, 기존 수집/이메일·Discord 회귀도 통과했다.
 외부 opt-in 테스트는 이번 작업에서 실행하지 않았으며 위 건수의 건너뜀 0에 포함된 테스트가 아니다.
+
+## Phase 5C — 다중 채널 통합
+
+### 구현과 호환 정책
+
+기존 NotificationDispatchService/NotificationWorkStore를 확장해 공시 1건당 선택된 EMAIL/DISCORD/KAKAO 작업을 만든다.
+공시 저장·분류·NotificationRuleService·CollectionPipelineService·스케줄러의 호출 흐름은 유지한다.
+유형 조건은 기존 EMAIL 필드로 저장하던 A~E 규칙을 **모든 채널의 공통 유형 조건**으로 재사용한다.
+유형 조건을 채널마다 복제하지 않으며 기업 모니터링·기업 알림·규칙 활성 기준을 모두 검사한다.
+기존 notification-candidates는 종전의 기업/공통 유형 후보 미리보기이고, 채널별 대상/활성 기준까지 포함한 작업 생성 결과와는 구분한다.
+
+```text
+신규 공시 저장 → 공식 유형 분류 → 공통 유형 조건/기업 활성 기준
+    → 선택·사용 가능 채널별 PENDING (동일 공시라도 서로 다른 작업)
+    → 기존 Dispatcher가 채널에 맞는 NotificationSender 선택
+    → 작업별 선점 PROCESSING → 외부 호출 → 별도 DB 트랜잭션으로 결과 저장
+```
+
+Sender는 channel()로 식별한다. EmailNotificationSender의 @Primary는 직접 주입하는 기존 코드의 호환용이며,
+자동 Dispatcher는 전체 Sender 목록에서 작업 채널과 일치하는 구현체를 선택한다. 이메일 주소 검증 때문에 Discord/Kakao 전용 구성이 차단되지 않는다.
+공시 수집과 외부 발송은 하나의 트랜잭션으로 묶지 않는다. 세 채널은 동일 재시도 상한/기본 간격을 쓰되 시도 횟수·결과·다음 시각은 각 작업이 독립 관리한다.
+새 라이브러리·외부 큐·다중 사용자·추가 수집 기능은 없다.
+
+### V6 마이그레이션과 대상 식별
+
+V1~V5는 수정하지 않았다. V6의 추가 내용:
+
+| 구조 | 목적 |
+| --- | --- |
+| watched_notification_channel | 관심 기업/채널별 enabled·enabled_since, 복합 PK 및 관심 기업 삭제 시 CASCADE |
+| notification_channel_settings | DISCORD/KAKAO 대상별 활성 기준·enabled·blocked_until |
+| notification_email_settings.blocked_until | 기존 이메일 활성 기준/주소는 그대로 두고 채널 장애 대기 시각만 추가 |
+| notification_targets 뷰 | 기존 이메일 설정과 신규 채널 설정을 읽는 공통 뷰, 비밀 URL/토큰 없음 |
+| notification_delivery | 채널 CHECK·수신자 CHECK 확장, nullable external_message_id 추가 |
+| kakao_connection.connection_id | 연결 세대 UUID, 기존 연결에는 마이그레이션 시 부여 |
+
+기존 EMAIL 데이터·수신자·상태·시도 횟수·활성 시각·UNIQUE를 보존한다.
+기존 관심 기업에 EMAIL 선택을 추가하되 notifications_enabled_since 기준을 보존한다. 새 관심 기업도 EMAIL은 기본 선택이며 명시적 설정 행이 없으면 기존 기준을 사용한다.
+DISCORD/KAKAO는 명시적 선택 전에는 작업을 생성하지 않는다. EMAIL=true를 반복 설정해도 활성 기준을 불필요하게 바꾸지 않는다.
+
+- EMAIL recipient: 기존 소문자 정규화 이메일 주소. 기존 null 수신자 이력의 중복 차단도 유지한다.
+- DISCORD recipient: 검증된 Webhook endpoint의 SHA-256 `discord:<64 hex>`. URL/토큰을 DB·응답·로그에 넣지 않는다.
+- KAKAO recipient: `kakao:<연결 UUID>`. 외부 사용자 ID/토큰이 아닌 본인 연결의 세대 식별자다. 토큰 갱신 중 유지하고 OAuth로 새 연결 시 교체한다.
+
+같은 공시·채널·대상의 UNIQUE와 INSERT ON CONFLICT DO NOTHING을 함께 사용한다.
+다른 Webhook 설정/카카오 재연결은 새 대상으로 간주하므로, 이전 대기 작업을 새 대상에 전달하지 않고 취소한다.
+실제 provider 계정 ID를 조회해 다중 계정으로 관리하는 기능은 없다.
+
+### 활성 기준과 소급 방지
+
+전역 NOTIFICATION_ENABLED, 채널 환경변수, 기업 notifications_enabled/monitoring_enabled,
+기업별 채널 선택, 공통 유형 조건이 모두 만족해야 한다. initial_import=false이고 최초 탐지 collected_at이 다음 기준보다 **엄격히 뒤**여야 한다.
+
+1. 대상별 전역 활성 기준 (동일 대상 재활성화 시 갱신).
+2. 기업 알림 활성 기준 및 규칙 활성 기준.
+3. 기업별 채널 활성 기준 (채널 추가/재활성화 시 갱신).
+
+접수일만 비교하지 않으므로 지연 분류된 공시도 원래 탐지 시각으로 판단한다.
+과거·초기 수집, 비활성 기간 탐지는 나중에 유형을 확인하거나 설정을 바꾸어도 일괄 발송하지 않는다.
+관측된 비활성화는 미발송 PENDING/재시도 FAILED를 CANCELLED로 정리하며 SENT/UNKNOWN은 변경하지 않는다.
+외부 서비스가 이미 호출 중이면 설정 변경과 원자적으로 취소할 수 없으며, 이는 기존 SMTP 정책과 같다.
+
+대상 설정은 앱 시작 및 작업 생성/발송 시 동기화한다. 환경변수는 재시작 후 적용한다.
+유효한 로컬 설정/연결이 되기 전에는 대상의 전역 활성 기준을 열지 않으며, 준비 이후 과거 탐지를 소급하지 않는다.
+앱이 한 번도 관측하지 않은 설정 변경 기간을 복원하는 기능은 없다.
+
+### 실패 격리·제한·복구
+
+- 하나의 채널이 FAILED/UNKNOWN이어도 다른 채널의 작업을 계속 처리하고 기존 SENT는 보존한다.
+- 명확한 일시적 실패만 기본 10분 간격·최초 포함 최대 4회(설정 가능) 시도한다. 실패한 작업만 재시도한다.
+- Retry-After가 있으면 기본 간격과 공급자 대기 중 긴 값을 next_attempt_at에 저장한다.
+  동일 채널·대상의 blocked_until도 함께 저장해 다른 신규/대기 작업이 쿼터를 더 소진하지 않도록 한다. 재시작해도 DB 대기는 유지한다.
+- 인증/삭제된 Webhook/재연결 필요 등 영구 실패 작업은 자동 재시도하지 않는다.
+  같은 대상의 다른 대기 작업도 최소 기본 간격 동안 보류해 잘못된 설정의 연속 호출을 억제하며 다른 채널은 계속 처리한다.
+- UNKNOWN은 자동 재발송하지 않는다. 오래된 PROCESSING은 기존 timeout 뒤 UNKNOWN으로 격리한다.
+- PENDING 및 안전한 FAILED는 DB에서 재조회하므로 재시작 뒤 계속 처리할 수 있다.
+- 외부 성공 후 결과 저장 트랜잭션 실패 시 UNKNOWN 저장을 시도한다. 격리에 성공하면 다른 채널을 계속 처리한다.
+  격리도 저장할 수 없거나 커밋 응답 유실로 상태가 확정되지 않으면 배치를 중단한다. 공유 DB 장애에서는 기록할 수 없는 외부 전송을 늘리지 않는다.
+- DB 선점 토큰과 FOR UPDATE SKIP LOCKED를 유지한다. 복구/다른 선점 이후 늦게 온 결과로 SENT/UNKNOWN을 덮어쓰지 않는다.
+
+Discord 5xx/응답 timeout, Kakao의 결과 불확실성, SMTP 수락 후 기록 유실에 대한 기존 보수적 UNKNOWN 정책은 유지한다.
+제한적 HTTP 재시도를 Sender와 Dispatcher에 중복해서 넣지 않았다. 성공은 공급자 수락이며 최종 전달/열람·exactly-once 보장이 아니다.
+
+### REST API와 비밀정보
+
+| 메서드 | 경로 | 의미 |
+| --- | --- | --- |
+| GET | /api/watchlist/{watchId}/notification-channels | 기업별 3채널 선택/활성 기준 |
+| PUT | /api/watchlist/{watchId}/notification-channels/{channel} | enabled 필수, 단일 채널 선택 변경, 기존 활성 true 재설정은 기준 유지 |
+| GET | /api/notification-channels | 전역 활성 여부 + 채널별 로컬 사용 가능 상태 |
+| GET | /api/notifications?channel=DISCORD&status=FAILED&page=0&size=20 | 채널/상태 AND 필터, 생성 시각/id 최신순, 페이지 크기 1~100 |
+| POST | /api/watchlist/{watchId}/notification-jobs | 기존 API 유지, 이제 적격 채널별 작업 생성. 전송 없음 |
+| POST | /api/notifications/dispatch | 기존 confirmSend=true 유지, 이제 선택된 여러 채널로 실제 전송 가능 |
+
+규칙 API·미리보기·수집 API는 유지한다. 이력 응답에 externalMessageId를 선택 필드로 추가했다.
+채널은 대문자 EMAIL/DISCORD/KAKAO, 잘못된 값/입력은 400·없는 관심 기업은 404다. Swagger의 엔드포인트/요청 모델/파라미터/오류도 갱신했다.
+오류 코드는 허용 목록의 안전한 값만 노출하며 미확인 예전 오류는 LEGACY_FAILURE로 표시한다.
+
+상태 API는 DISABLED/CONFIGURATION_REQUIRED/CONFIGURED/CONNECTED/REAUTH_REQUIRED와 available만 제공하며,
+키·Webhook URL·토큰·암호문·클라이언트 시크릿은 반환하지 않는다. 조회는 외부 probe나 토큰 갱신을 하지 않는다.
+CONFIGURED는 이메일 주소/Webhook 형식이 로컬에서 유효하다는 의미이며 SMTP 인증·Webhook 존재/권한 확인을 보장하지 않는다.
+CONNECTED도 로컬 토큰/만료/암호화 키 확인이며 provider가 실제로 동의를 취소했는지는 발송 응답에서 알 수 있다.
+Kakao 링크 미설정/등록 도메인 미확인 상태는 계속 발송을 차단한다.
+
+관리 API에는 인증이 없으므로 기존 단일 사용자 로컬 환경에서만 사용한다. 새 공개 테스트 전송 API는 만들지 않았다.
+Kakao 기존 수동 테스트 경로도 이제 NOTIFICATION_ENABLED=true를 추가로 요구하며 loopback·Origin·confirmSend 보호는 유지한다.
+5B 단계의 '연결만 할 때 전역 false' 절차는 그대로 유효하지만 실제 수동 전송 단계에는 전역 true가 필요하다.
+
+### 설정 및 직접 검증 가이드 — 이번 작업에서는 외부 호출하지 않음
+
+새 환경변수는 EMAIL_ENABLED=true 하나다. 기존 사용자의 이메일 채널 선택 호환용이며 NOTIFICATION_ENABLED=false에서는 실제 발송되지 않는다.
+DISCORD_ENABLED=false, KAKAO_ENABLED=false, NOTIFICATION_SCHEDULER_ENABLED=false 기본값은 유지한다.
+NOTIFICATION_ENABLED는 3개 채널의 공통 전역 차단이고 EMAIL_ENABLED는 이메일만 끄는 용도다.
+Discord/Kakao만 사용할 때 EMAIL_ENABLED=false로 두면 SMTP 주소를 요구하지 않는다.
+
+- Discord 설정: 전용 테스트 채널에서 Webhook을 준비하고 비밀 URL은 실행 환경에만 설정한다.
+  DISCORD_ENABLED만 켜도 전역/기업별 선택이 꺼져 있으면 자동 파이프라인은 전송하지 않는다.
+  승인한 사람이 직접 1건을 확인하는 독립 HTTP 예시는 위 5A 절을 따른다. 앱 밖에서 실행하는 예시이므로 앱 전역 스위치가 그 명령을 제어하지 않는다.
+- Kakao 설정/OAuth: 콘솔 Redirect URI·talk_message·제품 링크 도메인을 확인하고, 별도 암호화 키와 앱 키/secret을 설정한다.
+  SERVER_ADDRESS=127.0.0.1, KAKAO_LOCAL_CONNECT_ENABLED=true로 시작하고 위 5B의 /connect 화면을 사용한다.
+  연결만 할 때는 전역 false를 유지한다. 등록 도메인은 현재 미확인이므로 확인 전에는 전송을 시도하지 않는다.
+- Kakao 1건 테스트: 수집/자동 발송을 false로 두고 사람이 실제 발송을 승인한 경우에만 전역 true + Kakao true로 시작한다.
+  위 5B의 동일 Origin 브라우저 fetch를 confirmSend=true로 1회만 실행한다. 직접 테스트는 작업/이력을 만들지 않으므로 반복하면 중복될 수 있다.
+  UNKNOWN이면 먼저 카카오톡에서 결과를 확인하며 자동 반복하지 않는다.
+
+3개 채널의 통합 실제 확인은 승인한 사람이 별도 개발 DB에서 다음 순서로 수행한다.
+
+1. 수집/발송 타이머는 false로 둔다. 기존 테스트용 대상 외의 모니터링을 끄고 DB에 다른 PENDING/재시도 가능 FAILED가 없는지 조회한다.
+2. SMTP/테스트 Webhook/본인 Kakao 연결·제품 링크를 준비하고 EMAIL_ENABLED/DISCORD_ENABLED/KAKAO_ENABLED 및 전역을 true로 설정해 재시작한다.
+3. 관심 기업의 유형 조건과 알림을 활성화하고, /notification-channels/EMAIL·DISCORD·KAKAO에 각각 PUT {"enabled":true}로 선택한다.
+4. 활성 기준 뒤 실제로 새로 탐지한 증분 공시 1건을 사용한다. 최초 수집 공시를 억지로 신규로 바꾸거나 운영 데이터를 조작하지 않는다.
+   실제 OpenDART 호출도 허용한 경우에만 수동 수집 → 유형 분류 → /notification-jobs 순으로 진행한다.
+5. 채널별 이력과 총 PENDING을 조회해 해당 공시의 세 작업만 있는지 확인한다. 3개를 넘거나 수신 대상이 불명확하면 dispatch하지 않는다.
+6. 사람이 confirmSend=true로 기존 /api/notifications/dispatch를 딱 1회 호출한다.
+   공시/채널별 SENT·FAILED·UNKNOWN, Discord externalMessageId와 실제 수신함/채널/카카오톡 표시를 각각 확인한다.
+   같은 공시를 다시 작업 생성해 추가 작업이 0건인지 확인할 수 있지만 UNKNOWN을 임의 초기화/재발송하지 않는다.
+7. 검증 후 NOTIFICATION_ENABLED/DISCORD_ENABLED/KAKAO_ENABLED/KAKAO_LOCAL_CONNECT_ENABLED/
+   NOTIFICATION_SCHEDULER_ENABLED/COLLECTION_ENABLED를 false로 되돌려 재시작한다. 원하면 EMAIL_ENABLED도 false로 둔다.
+   전역 비활성화가 관측되면 미발송/안전한 재시도 작업은 취소되고 SENT/UNKNOWN 이력은 보존된다.
+
+실제 공시를 기다릴 수 없으면 이번 PostgreSQL/Mock 통합 테스트를 사용한다. 테스트를 위해 운영 공시의 탐지/초기 플래그를 변경하지 않는다.
+
+### 검증 범위와 완료 판정
+
+PhaseFiveCIntegrationTests는 3채널 선택 조합·다른 기업 설정·공통 규칙·초기/과거/재활성화/지연 분류 제외,
+채널별 성공/영구 실패/429·대상 전체 cooldown·재시도 상한·UNKNOWN·토큰 갱신/재연결,
+대상 변경·결과 DB 실패 격리·중단/재시작·동시 선점·중복 UNIQUE·V5 기존 이메일 데이터의 V6 이전과 REST/Swagger를 검증한다.
+추가 단위 테스트는 EMAIL_ENABLED 차단, Discord 대상 해시, Kakao 로컬 테스트의 전역 스위치 차단을 검증한다.
+이전 1~5B 테스트도 회귀 실행하며 실제 OpenDART/Gmail/Discord/Kakao는 호출하지 않는다.
+외부 opt-in 테스트는 실행 대상에서 제외하므로 아래 건너뜀 0과 별개로 '실행 안 함'이다.
+
+최종 실행 (2026-10-24): Java 21 `gradlew.bat build integrationTest --no-daemon --console=plain` **BUILD SUCCESSFUL**.
+
+| 구분 | 통과 | 실패 | 오류 | 건너뜀 |
+| --- | ---: | ---: | ---: | ---: |
+| 기본/단위 | 262 | 0 | 0 | 0 |
+| PostgreSQL 통합 | 132 | 0 | 0 | 0 |
+| 합계 | 394 | 0 | 0 | 0 |
+
+기존 364개 + 신규 30개(단위 3·PostgreSQL 27)가 포함된다.
+기존 테스트는 DB 없는 웹 컨텍스트의 신규 서비스 Mock과 Flyway 최신 버전 기대값 변경 외에는 의미를 유지했다.
+초기 실행의 비활성화 초기화 순서·Sender 메타데이터 Mock 검증 문제를 수정한 뒤 전체 회귀를 재실행해 통과했다.
+
+| MVP 확장 완료 항목 | 판정 | 근거 |
+| --- | --- | --- |
+| 1. 기존 이메일 정상 동작 | PASS | Email/로컬 SMTP/기존 3B~4D 회귀, 신규 전역·이메일 스위치 |
+| 2. Discord 모듈 정상 동작 | PASS | 기존 Mock HTTP + 신규 Dispatcher/대상 해시/외부 메시지 ID |
+| 3. Kakao 모듈 정상 동작 | PASS | 기존 Mock OAuth/토큰/HTTP + 연결 세대·갱신/재연결·전역 스위치 |
+| 4. 관심 기업별 채널 선택 | PASS | EMAIL만/DISCORD만/KAKAO만/전체/없음, 기업별 다른 선택과 REST |
+| 5. 복수 채널 독립 작업 생성 | PASS | 신규 공시의 3개 작업, 유형/활성 기준과 멱등 생성 |
+| 6. 채널별 발송 상태 | PASS | 혼합 SENT/FAILED/UNKNOWN, 채널별 조회와 외부 ID |
+| 7. 실패 채널만 재시도 | PASS | Discord 제한/일시 실패만 재처리, 다른 SENT 유지, 시도 상한 |
+| 8. 동일 공시·채널 중복 방지 | PASS | 반복 생성·동시 실행·UNIQUE·선점·재시작 |
+| 9. 과거 공시 소급 방지 | PASS | 초기/과거/추가 채널/비활성·재활성/지연 분류/대상 교체 |
+| 10. PostgreSQL 통합 | PASS | 132개, V1~V6 및 V5 데이터의 V6 이전 |
+| 11. 기존 회귀 테스트 | PASS | 이전 1~5B 테스트 포함 |
+| 12. API·개발 문서 | PASS | MockMvc/OpenAPI 라우트 계약, 채널 설정·이력 필터, README/이 문서 |
+
+PASS는 Mock 외부 서비스 및 실제 테스트 PostgreSQL에서의 구현 검증 기준이다.
+실제 세 채널 동시 수신·Kakao 등록 도메인·최종 전달/열람·장시간 운영은 **NOT VERIFIED**이며 실제 외부 호출은 0건이다.
+종료 후 테스트 임시 스키마는 0개임을 확인했다. 초기 컨텍스트 실패로 남았던 9개는 이번 생성 시각·빈 데이터를 확인하고 해당 이름만 정리했으며 운영 스키마/데이터는 변경하지 않았다.
+
+### 제한사항과 Phase 6 후보
+
+- 단일 사용자·단일 인스턴스 전제이며 계정/공개 관리 API 인증·분산 토큰 갱신은 제공하지 않는다.
+- 카카오 등록 도메인·실제 동의/갱신/수신, Discord 존재/권한·실제 수신, Gmail 최종 전달 및 장시간 3채널 운영은 NOT VERIFIED다.
+- 공유 DB 장애는 모든 채널에 영향을 줄 수 있다. 안전한 결과 기록이 불가능하면 배치를 멈추며 무조건 발송을 계속하지 않는다.
+- 대상 식별자는 내부 연결 세대/Webhook 해시다. 과거 대상 기록을 새 연결로 재지정하는 수동 재발송 API는 없다.
+- 관리 API/작업 생성은 로컬 개발 전제다. 인터넷 공개 전에 접근 통제·TLS·비밀정보 관리·백업/복구·모니터링을 준비한다.
+- Phase 6 후보는 운영 가시성, 설정 변경 이력, 암호화 키 교체, 큰 목록/배치 공정성, 인증/대시보드다. 이번에는 구현하지 않았다.
+
+Phase 5C까지만 구현했다. 실제 외부 로그인/전송, Phase 6, Commit·Push·배포는 수행하지 않았다.
