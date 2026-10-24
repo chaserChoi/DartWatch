@@ -46,6 +46,7 @@ public class NotificationDispatchService {
     public DispatchResult dispatch() {
         requireEnabled();
         int recovered = store.recoverStale();
+        store.stopExhaustedRetries();
         int sent = 0, failed = 0, unknown = 0, cancelled = store.cancelIneligible();
         for (int index = 0; index < properties.getBatchSize(); index++) {
             if (!properties.isEnabled()) break;

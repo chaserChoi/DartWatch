@@ -32,6 +32,7 @@ class OpenDartClientTests {
         var properties = new OpenDartProperties();
         properties.setApiKey("placeholder");
         properties.setPageSize(2);
+        properties.setMaxRetries(0);
         client = new OpenDartClient(builder.build(), properties, new CorpCodeParser(), new ObjectMapper());
     }
 
@@ -63,7 +64,8 @@ class OpenDartClientTests {
 
     @ParameterizedTest
     @CsvSource({"010,AUTHENTICATION", "011,AUTHENTICATION", "012,AUTHENTICATION", "020,RATE_LIMIT",
-            "800,UPSTREAM_SYSTEM", "900,UPSTREAM_SYSTEM", "100,API_REJECTED"})
+            "800,UPSTREAM_SYSTEM", "900,UPSTREAM_SYSTEM", "100,INVALID_REQUEST", "021,INVALID_REQUEST",
+            "101,API_REJECTED", "901,AUTHENTICATION"})
     void classifiesBodyStatusWithoutLeakingUpstreamMessage(String status, OpenDartException.Kind kind) {
         server.expect(queryParam("page_no", "1")).andRespond(withSuccess(
                 "{\"status\":\"" + status + "\",\"message\":\"sensitive content\"}", MediaType.APPLICATION_JSON));
@@ -80,7 +82,7 @@ class OpenDartClientTests {
     void httpErrorsDoNotCarryRequestUriOrResponseBody() {
         server.expect(queryParam("page_no", "1"))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY).body("sensitive content"));
-        assertKind(OpenDartException.Kind.HTTP);
+        assertKind(OpenDartException.Kind.HTTP_SERVER);
     }
 
     @Test

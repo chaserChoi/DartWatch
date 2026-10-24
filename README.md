@@ -177,6 +177,26 @@ V4는 수신자별 UNIQUE·DB 선점 토큰·재시도 시각·전역 활성 기
 자동 수집은 기본 비활성화이며 API Key 없이도 Health·Swagger·DB 조회는 사용할 수 있습니다.
 수집 조회 범위와 API 목록은 [Phase 2 가이드](docs/PHASE_2.md)에 정리했습니다.
 
+## Phase 4A 수집 안정성
+
+OpenDART 시스템 장애·HTTP 5xx·연결 오류·타임아웃은 기본 최대 2회 추가 재시도합니다.
+지수 백오프와 jitter를 적용하며 인증·파라미터 오류는 즉시 실패합니다.
+본문 020 또는 HTTP 429 후 기본 1시간은 기업 동기화·수집·분류의 추가 호출을 차단합니다.
+`OPENDART_MAX_RETRIES`, `OPENDART_RETRY_INITIAL_DELAY`, `OPENDART_RETRY_MAX_DELAY`,
+`OPENDART_RATE_LIMIT_COOLDOWN`으로 조정합니다.
+페이지/저장 실패 시 기존 성공 기준을 유지하고 다음 수집에서 같은 범위를 다시 확인합니다.
+이메일 정책과 DB 구조는 변경하지 않았습니다. 상세 설계·한계는 [Phase 4A 가이드](docs/PHASE_4.md)를 참고하세요.
+
+## Phase 4B 이메일 안정성
+
+공시·채널·수신자별 UNIQUE와 DB 선점 토큰을 유지합니다. 오래된 PROCESSING과 불확실한 전송 결과는 UNKNOWN으로
+격리하고 SENT/UNKNOWN은 자동 재발송하지 않습니다. 복합 SMTP/I/O 오류의 불확실성 판정을 보강하고,
+재시도 상한을 낮춘 경우 기존 FAILED 대기의 재시도 표시와 다음 시각도 정리합니다.
+중단 복구·결과 저장 실패·동시 생성/전송 검증은 [Phase 4 가이드](docs/PHASE_4.md)에 기록했습니다.
+
+실제 Gmail Smoke Test는 `smtp-live` 태그로 일반 테스트와 분리했습니다. 별도 `smtpSmokeTest` 작업과
+`RUN_LIVE_SMTP_TEST=true`가 모두 필요하며, 실제 발송 승인을 받은 경우에만 실행합니다.
+
 ## 빌드와 테스트
 
 ```powershell

@@ -44,7 +44,7 @@ tasks.withType(Test).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'postgres', 'live'
+        excludeTags 'postgres', 'live', 'smtp-live'
     }
 }
 
@@ -55,7 +55,7 @@ tasks.register('integrationTest', Test) {
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
         includeTags 'postgres'
-        excludeTags 'live'
+        excludeTags 'live', 'smtp-live'
     }
     shouldRunAfter tasks.named('test')
 }
@@ -65,6 +65,18 @@ tasks.register('liveTest', Test) {
     group = 'verification'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
-    useJUnitPlatform { includeTags 'live' }
+    useJUnitPlatform {
+        includeTags 'live'
+        excludeTags 'smtp-live'
+    }
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('smtpSmokeTest', Test) {
+    description = 'Explicit opt-in: sends a real email; requires RUN_LIVE_SMTP_TEST=true and SMTP configuration.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'smtp-live' }
     outputs.upToDateWhen { false }
 }

@@ -24,17 +24,24 @@ public class OpenDartClient {
     private final OpenDartProperties properties;
     private final CorpCodeParser corpCodeParser;
     private final ObjectMapper objectMapper;
+    private final OpenDartRequestPolicy requestPolicy;
 
     public OpenDartClient(RestClient restClient, OpenDartProperties properties,
                           CorpCodeParser corpCodeParser, ObjectMapper objectMapper) {
+        this(restClient, properties, corpCodeParser, objectMapper, new OpenDartRequestPolicy(properties));
+    }
+
+    OpenDartClient(RestClient restClient, OpenDartProperties properties, CorpCodeParser corpCodeParser,
+                   ObjectMapper objectMapper, OpenDartRequestPolicy requestPolicy) {
         this.restClient = restClient;
         this.properties = properties;
         this.corpCodeParser = corpCodeParser;
         this.objectMapper = objectMapper;
+        this.requestPolicy = requestPolicy;
     }
 
     public List<CorpRecord> downloadCompanies() {
-        return corpCodeParser.parse(request("/corpCode.xml", null, null, null, 0, null));
+        return requestPolicy.execute(() -> corpCodeParser.parse(request("/corpCode.xml", null, null, null, 0, null)));
     }
 
     public List<DartDisclosure> findDisclosures(String corpCode, LocalDate from, LocalDate through) {
@@ -50,13 +57,8 @@ public class OpenDartClient {
         int expectedPages = -1;
         int expectedCount = -1;
         for (int page = 1; page <= properties.getMaxPages(); page++) {
-            DisclosurePage response;
-            try {
-                response = objectMapper.readValue(request("/list.json", corpCode, from, through, page, type), DisclosurePage.class);
-            } catch (IOException ex) {
-                throw new OpenDartException(INVALID_RESPONSE);
-            }
-            if (response == null) throw new OpenDartException(INVALID_RESPONSE);
+            int requestedPage = page;
+            DisclosurePage response = requestPolicy.execute(() -> readPage(corpCode, from, through, requestedPage, type));
             if (OpenDartException.isEmpty(response.status(), response.message())) {
                 if (page != 1) throw new OpenDartException(INVALID_RESPONSE);
                 return List.of();
@@ -87,6 +89,17 @@ public class OpenDartClient {
         throw new OpenDartException(INVALID_RESPONSE);
     }
 
+    private DisclosurePage readPage(String corpCode, LocalDate from, LocalDate through, int page, DisclosureType type) {
+        try {
+            var response = objectMapper.readValue(request("/list.json", corpCode, from, through, page, type), DisclosurePage.class);
+            if (response == null) throw new OpenDartException(INVALID_RESPONSE);
+            OpenDartException.isEmpty(response.status(), response.message());
+            return response;
+        } catch (IOException ex) {
+            throw new OpenDartException(INVALID_RESPONSE);
+        }
+    }
+
     private byte[] request(String path, String corpCode, LocalDate from, LocalDate through, int page, DisclosureType type) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) throw new OpenDartException(CONFIGURATION);
         try {
@@ -102,6 +115,10 @@ public class OpenDartClient {
                 }
                 return builder.build();
             }).exchange((request, response) -> {
+                if (response.getStatusCode().value() == 429) throw new OpenDartException(RATE_LIMIT);
+                if (response.getStatusCode().is5xxServerError()) throw new OpenDartException(HTTP_SERVER);
+                if (response.getStatusCode().value() == 401 || response.getStatusCode().value() == 403)
+                    throw new OpenDartException(AUTHENTICATION);
                 if (!response.getStatusCode().is2xxSuccessful()) throw new OpenDartException(HTTP);
                 byte[] body = response.getBody().readNBytes(MAX_RESPONSE_BYTES + 1);
                 if (body.length == 0 || body.length > MAX_RESPONSE_BYTES) throw new OpenDartException(INVALID_RESPONSE);

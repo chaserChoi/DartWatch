@@ -80,6 +80,14 @@ public class NotificationWorkStore {
     }
 
     @Transactional
+    public int stopExhaustedRetries() {
+        return jdbc.update("""
+                UPDATE notification_delivery SET retryable=FALSE,next_attempt_at=NULL,version=version+1
+                WHERE status='FAILED' AND retryable=TRUE AND attempt_count>=:maxAttempts
+                """, new MapSqlParameterSource("maxAttempts", properties.getMaxRetries() + 1));
+    }
+
+    @Transactional
     public int cancelIneligible() {
         return jdbc.update("""
                 UPDATE notification_delivery n SET status='CANCELLED',last_error='POLICY_CHANGED',retryable=FALSE,

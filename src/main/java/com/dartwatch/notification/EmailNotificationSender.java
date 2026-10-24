@@ -3,6 +3,7 @@ package com.dartwatch.notification;
 import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.SendFailedException;
+import java.io.IOException;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
@@ -78,7 +79,7 @@ public class EmailNotificationSender implements NotificationSender {
         var queue = new ArrayDeque<Throwable>();
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
         queue.add(failure);
-        boolean authentication = false, connection = false, temporary = false, permanent = false;
+        boolean authentication = false, connection = false, temporary = false, permanent = false, uncertain = false;
         while (!queue.isEmpty() && seen.size() < 100) {
             var current = queue.removeFirst();
             if (!seen.add(current)) continue;
@@ -86,18 +87,28 @@ public class EmailNotificationSender implements NotificationSender {
                 if (failed.getValidSentAddresses() != null && failed.getValidSentAddresses().length > 0) return SendResult.unknown();
                 permanent |= failed.getInvalidAddresses() != null && failed.getInvalidAddresses().length > 0;
             }
+            for (var suppressed : current.getSuppressed()) queue.add(suppressed);
+            if (current instanceof MailConnectException) {
+                // This exception specifically describes failure to establish the transport, including connect timeout.
+                connection = true;
+                continue;
+            }
             int code = current instanceof SMTPSendFailedException smtp ? smtp.getReturnCode()
                     : current instanceof SMTPAddressFailedException address ? address.getReturnCode() : 0;
             temporary |= code >= 400 && code < 500;
             permanent |= code >= 500 && code < 600;
             authentication |= current instanceof AuthenticationFailedException || current instanceof MailAuthenticationException;
-            connection |= current instanceof MailConnectException || current instanceof ConnectException || current instanceof UnknownHostException;
+            boolean connectFailure = current instanceof ConnectException || current instanceof UnknownHostException;
+            connection |= connectFailure;
+            uncertain |= current instanceof IOException && !connectFailure;
             if (current.getCause() != null) queue.add(current.getCause());
             if (current instanceof MessagingException messaging && messaging.getNextException() != null) queue.add(messaging.getNextException());
             if (current instanceof MailSendException mail) {
                 for (var nested : mail.getMessageExceptions()) queue.add(nested);
             }
         }
+        // A mixed error graph or an incomplete inspection cannot prove that the message was never accepted.
+        if (uncertain || !queue.isEmpty()) return SendResult.unknown();
         if (authentication) return SendResult.failed("AUTHENTICATION", false);
         if (permanent) return SendResult.failed("SMTP_PERMANENT_REJECTION", false);
         if (temporary) return SendResult.failed("SMTP_TEMPORARY_REJECTION", true);

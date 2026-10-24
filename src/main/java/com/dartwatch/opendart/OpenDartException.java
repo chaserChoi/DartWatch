@@ -2,7 +2,8 @@ package com.dartwatch.opendart;
 
 public class OpenDartException extends RuntimeException {
     public enum Kind {
-        CONFIGURATION, AUTHENTICATION, RATE_LIMIT, UPSTREAM_SYSTEM, TIMEOUT, HTTP, NETWORK, INVALID_RESPONSE, API_REJECTED
+        CONFIGURATION, AUTHENTICATION, RATE_LIMIT, INVALID_REQUEST, UPSTREAM_SYSTEM, TIMEOUT,
+        HTTP, HTTP_SERVER, NETWORK, INTERRUPTED, INVALID_RESPONSE, API_REJECTED
     }
 
     private final Kind kind;
@@ -29,6 +30,7 @@ public class OpenDartException extends RuntimeException {
             case "013": return true;
             case "010", "011", "012", "901": throw new OpenDartException(Kind.AUTHENTICATION, status);
             case "020": throw new OpenDartException(Kind.RATE_LIMIT, status);
+            case "021", "100": throw new OpenDartException(Kind.INVALID_REQUEST, status);
             case "800", "900": throw new OpenDartException(Kind.UPSTREAM_SYSTEM, status);
             default: throw new OpenDartException(Kind.API_REJECTED, status);
         }

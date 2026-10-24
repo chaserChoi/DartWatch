@@ -50,6 +50,17 @@ class NotificationSchedulerTests {
     }
 
     @Test
+    void dispatcherFailureDoesNotCancelLaterSchedulerTicks() {
+        when(dispatcher.dispatch()).thenThrow(new IllegalStateException("database unavailable")).thenReturn(completed());
+        runner.withPropertyValues("dartwatch.notification.enabled=true", "dartwatch.notification.scheduler.enabled=true",
+                "dartwatch.notification.scheduler.interval=PT0.02S", "dartwatch.notification.scheduler.initial-delay=PT0S")
+                .run(context -> {
+                    context.getBean(SchedulerReadiness.class).markReady();
+                    verify(dispatcher, timeout(2000).atLeast(2)).dispatch();
+                });
+    }
+
+    @Test
     void blockingCollectionDoesNotBlockNotificationTimer() {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);

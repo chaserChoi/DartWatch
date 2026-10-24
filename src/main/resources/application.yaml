@@ -60,6 +60,10 @@ dartwatch:
     read-timeout: ${OPENDART_READ_TIMEOUT:30s}
     page-size: ${OPENDART_PAGE_SIZE:100}
     max-pages: ${OPENDART_MAX_PAGES:1000}
+    max-retries: ${OPENDART_MAX_RETRIES:2}
+    retry-initial-delay: ${OPENDART_RETRY_INITIAL_DELAY:PT1S}
+    retry-max-delay: ${OPENDART_RETRY_MAX_DELAY:PT10S}
+    rate-limit-cooldown: ${OPENDART_RATE_LIMIT_COOLDOWN:PT1H}
   collection:
     enabled: ${COLLECTION_ENABLED:false}
     interval: ${COLLECTION_INTERVAL:PT10M}

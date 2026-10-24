@@ -18,7 +18,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class CollectionPipelineService {
     private static final Logger log = LoggerFactory.getLogger(CollectionPipelineService.class);
-    private static final Set<String> API_BLOCKERS = Set.of("CONFIGURATION", "AUTHENTICATION", "RATE_LIMIT");
+    private static final Set<String> API_BLOCKERS = Set.of("CONFIGURATION", "AUTHENTICATION", "RATE_LIMIT", "INTERRUPTED");
     private final AtomicBoolean running = new AtomicBoolean();
     private final DisclosureCollectionService collector;
     private final DisclosureClassificationService classifier;

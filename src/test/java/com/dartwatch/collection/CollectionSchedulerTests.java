@@ -56,6 +56,16 @@ class CollectionSchedulerTests {
         verifyNoInteractions(service);
     }
 
+    @Test
+    void exceptionDoesNotCancelTheNextScheduledExecution() {
+        when(service.run()).thenThrow(new IllegalStateException("unavailable")).thenReturn(completed());
+        runner.withPropertyValues("dartwatch.collection.enabled=true", "dartwatch.collection.interval=PT0.02S",
+                "dartwatch.collection.initial-delay=PT0S").run(context -> {
+            context.getBean(SchedulerReadiness.class).markReady();
+            verify(service, timeout(2000).atLeast(2)).run();
+        });
+    }
+
     static CollectionPipelineService.Result completed() {
         return new CollectionPipelineService.Result("COMPLETED",
                 new DisclosureCollectionService.CollectionResult("COMPLETED", List.of()), List.of());

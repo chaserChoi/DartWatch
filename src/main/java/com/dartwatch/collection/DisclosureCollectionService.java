@@ -53,7 +53,7 @@ public class DisclosureCollectionService {
                     log.warn("Disclosure collection failed: watchId={}, kind={}", watchId, code);
                     results.add(new CollectionStore.Outcome(watchId, "FAILED", null, null, 0, 0, code));
                     if (ex instanceof OpenDartException dart && switch (dart.getKind()) {
-                        case CONFIGURATION, AUTHENTICATION, RATE_LIMIT -> true;
+                        case CONFIGURATION, AUTHENTICATION, RATE_LIMIT, INTERRUPTED -> true;
                         default -> false;
                     }) break;
                 }

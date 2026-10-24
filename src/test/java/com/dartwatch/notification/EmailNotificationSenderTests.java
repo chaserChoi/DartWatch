@@ -5,10 +5,14 @@ import jakarta.mail.Session;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import java.net.SocketTimeoutException;
+import java.net.ConnectException;
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Properties;
 import org.eclipse.angus.mail.smtp.SMTPSendFailedException;
+import org.eclipse.angus.mail.util.MailConnectException;
+import org.eclipse.angus.mail.util.SocketConnectException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -97,6 +101,39 @@ class EmailNotificationSenderTests {
         var smtp = new SMTPSendFailedException(".", 450, "secret", null, accepted, null, null);
         doThrow(new MailSendException("secret", smtp)).when(mail).send(mime);
         assertThat(sender.send(message()).status()).isEqualTo(NotificationStatus.UNKNOWN);
+    }
+
+    @Test
+    void mixedTemporaryRejectionAndTransportTimeoutRemainUnknown() {
+        var rejection = new SMTPSendFailedException(".", 450, "secret", new SocketTimeoutException("secret"), null, null, null);
+        var result = EmailNotificationSender.classifyFailure(new MailSendException("secret", rejection));
+        assertThat(result).isEqualTo(NotificationSender.SendResult.unknown());
+    }
+
+    @Test
+    void suppressedIoUncertaintyOverridesConnectionFailureEvidence() {
+        var connection = new ConnectException("secret");
+        connection.addSuppressed(new IOException("reply may have been lost"));
+        assertThat(EmailNotificationSender.classifyFailure(new MailSendException("secret", connection)))
+                .isEqualTo(NotificationSender.SendResult.unknown());
+    }
+
+    @Test
+    void explicitConnectTimeoutIsSafeToRetryButGenericReadTimeoutIsNot() {
+        var timeout = new SocketTimeoutException("secret");
+        var connect = new MailConnectException(new SocketConnectException("secret", timeout, "smtp.invalid", 25, 100));
+        assertThat(EmailNotificationSender.classifyFailure(new MailSendException("secret", connect)))
+                .isEqualTo(NotificationSender.SendResult.failed("CONNECTION_FAILED", true));
+        assertThat(EmailNotificationSender.classifyFailure(new MailSendException("secret", timeout)))
+                .isEqualTo(NotificationSender.SendResult.unknown());
+    }
+
+    @Test
+    void incompleteExceptionGraphInspectionCannotAuthorizeARetry() {
+        Throwable chain = new ConnectException("secret");
+        for (int index = 0; index < 105; index++) chain = new jakarta.mail.MessagingException("hidden", (Exception) chain);
+        var rejection = new SMTPSendFailedException("MAIL", 450, "secret", (Exception) chain, null, null, null);
+        assertThat(EmailNotificationSender.classifyFailure(rejection)).isEqualTo(NotificationSender.SendResult.unknown());
     }
 
     static NotificationSender.Message message() {
