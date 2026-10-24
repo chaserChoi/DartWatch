@@ -25,4 +25,11 @@ public enum DisclosureType {
         }
         throw new IllegalArgumentException("Notification type must be A..E");
     }
+
+    public static DisclosureType fromDartCode(String code) {
+        for (var type : values()) {
+            if (type.dartCode.equals(code)) return type;
+        }
+        throw new IllegalArgumentException("Disclosure type must be A..J");
+    }
 }

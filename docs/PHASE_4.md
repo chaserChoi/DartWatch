@@ -1,7 +1,7 @@
 # Phase 4 — 수집·이메일 안정성
 
-Phase 4A와 4B를 구현했다. 아래 수집 내용은 4A 구현 시점의 기록이며 이메일 변경은 뒤의 **Phase 4B** 절을 기준으로 한다.
-Phase 4C·4D, 신규 인프라·의존성·Entity·마이그레이션은 포함하지 않는다.
+Phase 4A·4B·4C를 구현했다. 아래 수집/이메일 내용은 각 단계의 기록이며 최신 API·운영 품질 변경은 뒤의 **Phase 4C** 절을 기준으로 한다.
+Phase 4D, 신규 인프라·의존성·Entity·마이그레이션은 포함하지 않는다.
 
 ## 기존 보장과 보완점
 
@@ -236,3 +236,106 @@ SMTP는 Mock이고 CHECK 오류로 결과 저장 실패를 주입한다. 커밋 
 - Phase 4C에서 응답 통계만으로 전달 여부를 단정하지 않고 DB 상태와 불확실성을 함께 표시한다.
 - 수집 재시도로 SENT/UNKNOWN을 초기화하거나 전역/기업/조건의 활성 기준을 과거로 되돌리지 않는다.
 - 기존 도메인 보조 메서드는 실제 전송 워커가 아니다. 자동 전송/재시도는 계속 WorkStore 선점·기한·상한 경로만 사용한다.
+
+## Phase 4C — 테스트·운영 로그·REST API·Swagger
+
+### 분석과 범위
+
+전체 Controller/Service/Repository, 공통 예외 처리, SMTP·OpenDART 클라이언트, 로그/문서 설정과 기존 테스트를 확인했다.
+4A·4B와 3A~3C의 수집·분류·알림 시나리오는 이미 PostgreSQL/Mock 테스트가 있어 재작성하지 않았다.
+페이지 실패·DB 롤백·기업별 기준 복원·한도 억제·알림 활성 기준·선점 경쟁·재시도·UNKNOWN 격리를 그대로 유지했다.
+
+누락된 것은 저장 공시 목록 REST API, 대부분의 Swagger 설명, 누락 파라미터/기본 오류 형식, 작업별 운영 추적 정보였다.
+새 기능은 계획서 MVP에 있는 **저장 공시 목록 조회**뿐이다. 기존 경로/성공 응답 형식/상태와 재시도·DB 트랜잭션 정책은 유지했다.
+새 라이브러리·비즈니스 Entity·Flyway SQL은 추가하지 않았다.
+
+### 공시 목록 API
+
+`GET /api/disclosures` → `{items,page,size,totalElements}`.
+
+| 입력 | 규칙 |
+| --- | --- |
+| companyId | 선택, 양수 기업 DB 식별자. corp_code와 구분 |
+| query | 선택, 기업명 대소문자 무시 부분 검색 또는 종목코드 일치. 주어진 경우 공백 제외 1~200자 |
+| type | 선택, 공식 대문자 A~J. enum 이름/소문자/빈 값 거부 |
+| page | 기본 0, 0 이상 |
+| size | 기본 20, 1~100 |
+
+필터는 AND로 결합한다. query의 `%`, `_`, `!`는 SQL wildcard로 확장하지 않고 글자 그대로 검색한다.
+type 생략 시 NULL 미분류도 포함한다. F~J는 저장된 별도 유형으로 검색하며 E로 바꾸지 않는다.
+없는 기업이나 범위를 벗어난 페이지는 HTTP 200 빈 items를 반환하며 전체 필터 결과 수는 유지한다.
+정렬은 `receiptDate DESC, rceptNo DESC`로 고정했다. 정정공시는 별도 접수번호의 독립 행으로 조회된다.
+관심 등록/모니터링 여부에 관계없이 저장된 공시를 읽으며 OpenDART·SMTP는 호출하지 않는다.
+
+Entry는 공시 id·기업 DTO(id/corpCode/stockCode/name)·rceptNo·reportName·공식 type 또는 null·receiptDate·filerName·remarks·
+initialImport·detectedAt(기존 collected_at)·접수번호 기반 dartUrl이다. 기업 DTO의 name은 현재 기업 디렉터리 이름이다.
+기존 Entity/Repository를 재사용하고 readOnly 트랜잭션과 company EntityGraph로 DTO 매핑 시 추가 기업별 조회를 피한다.
+
+### 요청 검증과 공통 오류
+
+- 기존 Service의 필수 값/식별자/페이지 검증을 유지하고 Swagger에 같은 규칙을 표시했다. validation 의존성을 추가하지 않았다.
+- 필수 query 누락, 타입 변환, 잘못된 JSON은 400 INVALID_INPUT이다. null/빈 DTO로 등록/실제 발송을 우회하지 못하는지 검증했다.
+- 경로 없음 404 ENDPOINT_NOT_FOUND, 잘못된 메서드 405 METHOD_NOT_ALLOWED(Allow 헤더 유지),
+  지원하지 않는 Accept는 406 NOT_ACCEPTABLE, 요청 미디어 타입은 415 UNSUPPORTED_MEDIA_TYPE.
+- 기존 ApiException의 404/409/503 및 OpenDART 502/503/504 매핑과 안전한 upstreamStatus를 유지한다.
+- DB 무결성/잠금의 409는 유지한다. 기타 DataAccessException/TransactionException은 503 PERSISTENCE_UNAVAILABLE,
+  예상하지 못한 예외는 500 INTERNAL_ERROR로 응답하며 원본 메시지를 넣지 않는다.
+- 오류 형식은 `application/problem+json`의 type/title/status/detail/instance + code이며 upstreamStatus는 해당할 때만 있다.
+- `POST /api/collections`의 HTTP 200은 기업별 성공을 뜻하지 않는다. 기존 본문 결과를 계속 확인해야 한다.
+
+### 운영 로그
+
+추가 프레임워크 없이 SLF4J를 사용했다. 건별 디버그 본문이나 전역 요청 URI 로깅은 추가하지 않았다.
+
+- 수집: 실행 UUID runId, 배치 시작/종료·상태·시도 기업 수, 기업별 watchId/corpCode·조회 범위·시작/종료·fetched/inserted/duplicates·durationMs·안전한 error.
+  duplicates는 성공 결과의 fetched-inserted이며 실패/부분 조회를 중복 건수로 추정하지 않는다.
+- 알림: 별도 배치 runId, deliveryId/rceptNo/channel, 선점 커밋 후 DB attemptCount/retryCount, 처리 결과·SMTP 결과·기록 확인 여부·durationMs·안전한 error.
+  Claim에 기존 DB attempt_count를 읽어 로그에 사용한다. 스키마나 외부 REST DTO는 바꾸지 않았다.
+- SMTP 수락과 DB 기록 성공을 구분한다. 결과 CAS 실패/저장 예외 시 로그 status=UNKNOWN, smtpResult는 별도 표시한다.
+  DB에 SENT가 이미 커밋된 응답 유실 상황도 가능하므로 이력을 기준으로 판단한다.
+- INFO는 시작/종료/정상 처리/취소·집계, WARN은 장애·발송 실패·불확실성, ERROR는 예상하지 못한 API 내부 오류에 사용한다.
+- 키·비밀번호·수신/발신 이메일·선점 토큰·원본 예외·인증 URI는 로그 인자로 전달하지 않는다.
+  Hibernate SqlExceptionHelper의 원본 SQL 오류 로깅을 끄고 앱의 안전한 오류 코드와 작업 식별자를 사용한다.
+- 오류 기록이 DB 장애로 불가능해도 기존 체크포인트/PROCESSING 복구 정책을 유지한다. 로그만을 발송 성공의 근거로 삼지 않는다.
+
+### Swagger
+
+모든 실제 Controller에 태그/Operation을 추가했다. OpenApiConfiguration에서 앱 설명, 공통 ApiProblem 스키마,
+실제 오류 경로에 맞는 주요 응답, 공통 page/size 기본값·범위를 정리했다.
+기업 등록은 201, 삭제는 204로 표시하고 요청 record의 필수 값을 문서화했다.
+알림 조건 A~E와 목록 유형 A~J, 수동 수집의 기능 범위, 실제 전송 확인, SENT/UNKNOWN 의미를 구분했다.
+Advice의 모든 예외를 모든 API에 일괄 추가하는 자동 문서는 끄고 적용되는 주요 오류를 명시했다.
+실제 사용하지 않는 API·인증·강제 UNKNOWN 재시도 경로는 추가하지 않았다.
+
+### 신규·변경 테스트
+
+| 테스트 | 보강 내용 |
+| --- | --- |
+| DartWatchApplicationTests | 잘못된 쿼리 14종, 누락/잘못된 body, 404/405/406/415, DB/내부 오류의 민감정보 제외, 전체 실제 라우트↔OpenAPI 일치·성공 코드·필수 DTO·페이지 범위 |
+| OperationalLoggingTests | 동일 수집 runId·신규/중복 수·실패·시간·민감정보 제외, DB 기록 미확인 알림의 UNKNOWN/WARN·시도 횟수·수신자/토큰 제외 |
+| PhaseFourCIntegrationTests | 목록 정렬/페이지/NULL/링크, 기업·유형 AND 필터/F 별도 조회, SQL wildcard 문자 처리, REST 등록→수집→분류→작업→Mock 실패/기한 재시도→이력→중복 방지 |
+| PostgresApplicationTests | 실제 HTTP 서버 테스트도 기존 OwnedPostgresSchema로 격리. 기동 초기화가 운영 수신자 설정/대기 작업을 변경하지 않도록 개선 |
+
+기존 4A/4B 테스트를 회귀 실행한다. DB 테스트는 기존 로컬 PostgreSQL과 소유한 임시 스키마를 사용한다.
+실제 OpenDART·Gmail을 호출하는 liveTest/smtpSmokeTest는 실행하지 않는다.
+
+실행 결과 (2026-10-24):
+
+- Java 21 `build integrationTest` 성공. 기본/단위 **144개**, PostgreSQL 통합 **92개**, 총 **236개 통과**.
+  실패·오류·건너뜀은 모두 0개다. 기존 212개에 신규 검증 24개를 추가했다.
+- 실제 Controller 경로/HTTP 메서드와 OpenAPI 경로가 모두 일치하며, 201/204·필수 DTO·페이지 범위를 검증했다.
+- 로그 상관 ID·건수·시간·민감정보 제외와 SMTP 수락/DB 결과 미확인의 구분을 검증했다.
+- 최초 전체 흐름 테스트에서는 전역 활성화 기준을 초기화하지 않아 적격 작업이 제외되는 점을 발견했다.
+  운영의 기동 초기화와 동일하게 테스트에서 활성 기준을 먼저 기록한 뒤 재검증했다. 비즈니스 활성 정책은 변경하지 않았다.
+- 일반 테스트에 LiveSmtpSmokeTest가 포함되지 않음을 확인했다. 실제 OpenDART/Gmail은 호출하지 않았다.
+- Flyway V1~V4 성공 상태, 마이그레이션 무변경, 테스트 종료 후 남은 `dw_test_` 스키마 0개를 확인했다.
+- `git diff --check` 통과. 신규 의존성·인프라·마이그레이션 없음. Phase 4D·Commit·Push·배포는 수행하지 않았다.
+
+### 남은 제한과 Phase 4D 최종 검증 사항
+
+- 실제 외부 API·수신함 전달·장시간 자동 운영·OS 강제 종료는 이번 검증에 없다. 필요할 때 별도 승인·환경에서 확인한다.
+- Swagger JSON·UI 응답·라우트 일치는 자동 검증하지만 사람이 브라우저에서 모든 Try it out을 실행하지 않았다.
+- 목록의 깊은 OFFSET 페이지/기업명 부분 검색 성능은 대량 데이터로 검증하지 않았다. MVP 규모를 넘으면 인덱스·커서 페이지를 검토한다.
+- 4D에서는 기본 세 활성화 플래그 false, 환경변수 예제, V1~V4 체크섬, 빈 DB와 기존 DB 기동·문서 재현성을 최종 확인해야 한다.
+- 운영 확인 중 수동 수집은 메일을 즉시 보내지 않아도 이후 활성 자동 파이프라인의 대상이 될 수 있다. 실제 발송 검증에는 명시적 승인이 필요하다.
+- UNKNOWN은 자동 재전송하지 않는다. 새 목록/문서/로그를 이용해 활성 기준·과거 제외·중복 방지를 우회하지 않는다.

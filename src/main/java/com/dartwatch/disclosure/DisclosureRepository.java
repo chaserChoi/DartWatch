@@ -11,9 +11,20 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.repository.query.Param;
 
 public interface DisclosureRepository extends JpaRepository<Disclosure, Long> {
+    @EntityGraph(attributePaths = "company")
+    @Query("""
+            select d from Disclosure d join d.company c
+            where (:companyId is null or c.id = :companyId)
+            and (:query is null or lower(c.name) like lower(:namePattern) escape '!' or c.stockCode = :query)
+            and (:type is null or d.disclosureType = :type)
+            """)
+    Page<Disclosure> search(@Param("companyId") Long companyId, @Param("query") String query,
+                           @Param("namePattern") String namePattern, @Param("type") DisclosureType type, Pageable pageable);
+
     Optional<Disclosure> findByRceptNo(String rceptNo);
     Page<Disclosure> findByCompanyIdOrderByReceiptDateDescIdDesc(Long companyId, Pageable pageable);
 

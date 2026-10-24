@@ -2,6 +2,9 @@ package com.dartwatch.notification;
 
 import com.dartwatch.api.ApiException;
 import com.dartwatch.watchlist.WatchedCompanyRepository;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import org.springframework.dao.DataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.mail.MailProperties;
@@ -45,6 +48,22 @@ public class NotificationDispatchService {
 
     public DispatchResult dispatch() {
         requireEnabled();
+        String runId = UUID.randomUUID().toString();
+        long started = System.nanoTime();
+        log.info("Notification batch started: runId={}", runId);
+        try {
+            return dispatchBatch(runId);
+        } catch (RuntimeException ex) {
+            log.warn("Notification batch failed: runId={}, error={}", runId,
+                    ex instanceof DataAccessException ? "PERSISTENCE" : "INTERNAL");
+            throw ex;
+        } finally {
+            log.info("Notification batch finished: runId={}, durationMs={}", runId,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+        }
+    }
+
+    private DispatchResult dispatchBatch(String runId) {
         int recovered = store.recoverStale();
         store.stopExhaustedRetries();
         int sent = 0, failed = 0, unknown = 0, cancelled = store.cancelIneligible();
@@ -52,10 +71,21 @@ public class NotificationDispatchService {
             if (!properties.isEnabled()) break;
             var claim = store.claimOne(); // This transaction commits before SMTP is invoked.
             if (claim == null) break;
-            if (!store.isStillEligible(claim) || !properties.isEnabled()) {
-                store.cancelClaim(claim);
-                cancelled++;
-                continue;
+            long deliveryStarted = System.nanoTime();
+            log.info("Notification started: runId={}, deliveryId={}, rceptNo={}, channel=EMAIL, attempt={}, retryCount={}",
+                    runId, claim.id(), claim.message().rceptNo(), claim.attemptCount(), Math.max(0, claim.attemptCount() - 1));
+            try {
+                if (!store.isStillEligible(claim) || !properties.isEnabled()) {
+                    store.cancelClaim(claim);
+                    cancelled++;
+                    log.info("Notification finished: runId={}, deliveryId={}, rceptNo={}, channel=EMAIL, status=CANCELLED, error=POLICY_CHANGED, durationMs={}",
+                            runId, claim.id(), claim.message().rceptNo(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - deliveryStarted));
+                    continue;
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Notification paused before SMTP: runId={}, deliveryId={}, rceptNo={}, channel=EMAIL, error=PRE_SEND_CHECK, durationMs={}",
+                        runId, claim.id(), claim.message().rceptNo(), TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - deliveryStarted));
+                throw ex;
             }
             NotificationSender.SendResult result;
             try {
@@ -71,7 +101,9 @@ public class NotificationDispatchService {
                 // SMTP may have accepted the email. Preserve uncertainty, never put it back in PENDING.
                 try { store.finish(claim, NotificationSender.SendResult.unknown()); }
                 catch (RuntimeException unavailable) { /* Stale PROCESSING will become UNKNOWN on recovery. */ }
-                log.warn("Notification result could not be persisted: deliveryId={}", claim.id());
+                log.warn("Notification finished: runId={}, deliveryId={}, rceptNo={}, channel=EMAIL, status=UNKNOWN, smtpResult={}, recorded=false, error=RESULT_PERSISTENCE, durationMs={}",
+                        runId, claim.id(), claim.message().rceptNo(), result.status(),
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - deliveryStarted));
                 unknown++;
                 break;
             }
@@ -81,9 +113,15 @@ public class NotificationDispatchService {
                 case FAILED -> failed++;
                 default -> unknown++;
             }
-            log.info("Notification processed: deliveryId={}, status={}, recorded={}", claim.id(), result.status(), recorded);
+            var event = recorded && result.status() == NotificationStatus.SENT ? log.atInfo() : log.atWarn();
+            event.log("Notification finished: runId={}, deliveryId={}, rceptNo={}, channel=EMAIL, status={}, smtpResult={}, recorded={}, attempt={}, retryCount={}, error={}, durationMs={}",
+                    runId, claim.id(), claim.message().rceptNo(), recorded ? result.status() : NotificationStatus.UNKNOWN,
+                    result.status(), recorded, claim.attemptCount(), Math.max(0, claim.attemptCount() - 1),
+                    recorded ? result.error() : "CLAIM_LOST", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - deliveryStarted));
             if ("AUTHENTICATION".equals(result.error()) || "CONFIGURATION".equals(result.error())) break;
         }
+        log.info("Notification batch result: runId={}, sent={}, failed={}, unknown={}, cancelled={}, recoveredUnknown={}",
+                runId, sent, failed, unknown, cancelled, recovered);
         return new DispatchResult(sent, failed, unknown, cancelled, recovered);
     }
 

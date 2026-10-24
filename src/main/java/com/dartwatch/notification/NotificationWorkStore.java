@@ -115,13 +115,13 @@ public class NotificationWorkStore {
                     claim_token=:token,last_error=NULL,next_attempt_at=NULL,retryable=FALSE,version=version+1 WHERE id=:id
                 """, params);
         return jdbc.queryForObject("""
-                SELECT n.id,n.recipient,coalesce(d.company_name,c.name) AS company_name,d.report_name,d.disclosure_type,
+                SELECT n.id,n.recipient,n.attempt_count,coalesce(d.company_name,c.name) AS company_name,d.report_name,d.disclosure_type,
                     d.receipt_date,d.rcept_no FROM notification_delivery n JOIN disclosure d ON d.id=n.disclosure_id
                     JOIN company c ON c.id=d.company_id WHERE n.id=:id
                 """, params, (row, index) -> new Claim(row.getLong("id"), token, new NotificationSender.Message(
                 row.getString("recipient"), row.getString("company_name"), row.getString("report_name"),
                 DisclosureType.valueOf(row.getString("disclosure_type")).getDartCode(),
-                row.getDate("receipt_date").toLocalDate(), row.getString("rcept_no"))));
+                row.getDate("receipt_date").toLocalDate(), row.getString("rcept_no")), row.getInt("attempt_count")));
     }
 
     @Transactional(readOnly = true)
@@ -163,5 +163,7 @@ public class NotificationWorkStore {
                 .addValue("now", Timestamp.from(clock.instant()));
     }
 
-    public record Claim(Long id, UUID token, NotificationSender.Message message) { }
+    public record Claim(Long id, UUID token, NotificationSender.Message message, int attemptCount) {
+        public Claim(Long id, UUID token, NotificationSender.Message message) { this(id, token, message, 1); }
+    }
 }

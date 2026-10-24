@@ -6,12 +6,23 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import com.dartwatch.support.OwnedPostgresSchema;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.junit.jupiter.api.AfterAll;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Tag("postgres")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class PostgresApplicationTests {
+    private static final OwnedPostgresSchema SCHEMA = new OwnedPostgresSchema();
+
+    @DynamicPropertySource
+    static void configure(DynamicPropertyRegistry registry) { SCHEMA.configure(registry); }
+
+    @AfterAll
+    static void cleanup(@Autowired DataSource dataSource) throws Exception { SCHEMA.drop(dataSource); }
 
     @Autowired
     private DataSource dataSource;

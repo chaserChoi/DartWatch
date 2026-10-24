@@ -34,6 +34,7 @@ server:
   port: ${SERVER_PORT:8080}
 
 springdoc:
+  override-with-generic-response: false
   swagger-ui:
     path: /swagger-ui.html
 
@@ -77,3 +78,4 @@ logging:
     org.springframework.web.client: OFF
     org.springframework.mail: OFF
     org.eclipse.angus.mail: OFF
+    org.hibernate.engine.jdbc.spi.SqlExceptionHelper: OFF
