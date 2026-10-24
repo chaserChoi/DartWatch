@@ -6,6 +6,12 @@ OpenDART 공시를 수집하고 관심 기업·공시 유형 조건에 맞는 �
 **Phase 1~4 개발과 Mock 기반 MVP 검증을 완료했습니다.** 실제 3개 기업의 신규 공시를 장시간 수집해 Gmail 수신까지 확인한 운영 검증은 별개입니다.
 이번 최종 검증에서는 실제 OpenDART·Gmail을 호출하지 않았습니다. 최종 판정과 미검증 항목은 [PHASE_4](docs/PHASE_4.md)에 있습니다.
 
+추가로 **Phase 5A Discord Webhook 발송 모듈**을 구현했습니다. 기존 자동 파이프라인에는 연결하지 않았으며 실제 Discord 메시지는 보내지 않았습니다.
+구조·오류/대기 정책·사람이 1건을 직접 확인하는 방법은 [PHASE_5](docs/PHASE_5.md)에 있습니다.
+기본 `DISCORD_ENABLED=false`, `DISCORD_WEBHOOK_URL`은 빈 값이며 실제 값은 실행 환경에만 공급합니다.
+연결/응답 timeout은 `DISCORD_CONNECT_TIMEOUT=PT5S`, `DISCORD_READ_TIMEOUT=PT10S`로 조정합니다.
+Discord를 켜도 기존 수집/이메일 스케줄러는 Discord를 호출하지 않습니다. 다중 채널 작업 배분은 Phase 5C 후속 작업입니다.
+
 ## 핵심 기능과 기술 스택
 
 - 기업 고유번호 ZIP/XML 동기화, 기업명·종목코드 검색, 관심 기업 관리.
@@ -255,4 +261,4 @@ dispatch는 발송을 일으킬 수 있으므로 상태 확인을 위해 호출�
 - Phase 5 후보: NotificationSender 기반 Kakao/Discord 확장. Phase 6 후보: 인증·대시보드·관측성·대량 조회 개선.
 - 운영/배포 전 비밀정보 관리·TLS/접근 통제·DB 백업/복원·모니터링·승인된 외부 E2E를 별도 준비합니다.
 
-Phase 4D에서 개발을 종료했습니다. Phase 5·6, Commit·Push·배포는 수행하지 않았습니다.
+현재 Phase 5A까지 구현했습니다. Phase 5B·5C·6, Commit·Push·배포는 수행하지 않았습니다.

@@ -21,6 +21,7 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Component;
 
 @Component
+@org.springframework.context.annotation.Primary
 public class EmailNotificationSender implements NotificationSender {
     private final ObjectProvider<JavaMailSender> mailSender;
     private final NotificationProperties properties;

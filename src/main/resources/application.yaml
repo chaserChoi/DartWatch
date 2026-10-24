@@ -39,6 +39,11 @@ springdoc:
     path: /swagger-ui.html
 
 dartwatch:
+  discord:
+    enabled: ${DISCORD_ENABLED:false}
+    webhook-url: ${DISCORD_WEBHOOK_URL:}
+    connect-timeout: ${DISCORD_CONNECT_TIMEOUT:PT5S}
+    read-timeout: ${DISCORD_READ_TIMEOUT:PT10S}
   notification:
     scheduler:
       enabled: ${NOTIFICATION_SCHEDULER_ENABLED:false}
